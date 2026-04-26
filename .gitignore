@@ -1,0 +1,33 @@
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python packaging/test/cache
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Local DB sidecars
+*.sqlite3-shm
+*.sqlite3-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Local env files
+.env.*
+!.env.example
+
+# Runtime artifacts
+artifacts/logs/*
+artifacts/control/*
+artifacts/weights/*
+artifacts/*.json
+!artifacts/logs/.gitkeep
+!artifacts/control/.gitkeep
+!artifacts/weights/.gitkeep

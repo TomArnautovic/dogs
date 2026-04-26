@@ -1,0 +1,169 @@
+{
+  "run_key": "train-20260420065735-af24a583",
+  "generated_at": "2026-04-20T07:00:18.205060+00:00",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.04361000216836594,
+      "train_winner_accuracy": 0.3405504587155963,
+      "train_exact_order_accuracy": 0.007981651376146788,
+      "validation_loss": 0.043599216986259216,
+      "validation_winner_accuracy": 0.35069699192956716,
+      "validation_top3_set_accuracy": 0.15297138664710197,
+      "validation_exact_order_accuracy": 0.00880410858400587,
+      "validation_mean_abs_rank_error": 1.5023233064318906,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 517,
+          "2": 478,
+          "3": 448,
+          "4": 448,
+          "5": 401,
+          "6": 434
+        },
+        "predicted_winner_counts": {
+          "1": 613,
+          "2": 513,
+          "3": 434,
+          "4": 401,
+          "5": 343,
+          "6": 422
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.4506769825918762,
+          "2": 0.38493723849372385,
+          "3": 0.3236607142857143,
+          "4": 0.30580357142857145,
+          "5": 0.27680798004987534,
+          "6": 0.33640552995391704
+        }
+      }
+    }
+  ],
+  "summary": {
+    "loss": 0.043599216986259216,
+    "winner_accuracy": 0.35069699192956716,
+    "top3_set_accuracy": 0.15297138664710197,
+    "exact_order_accuracy": 0.00880410858400587,
+    "mean_abs_rank_error": 1.5023233064318906,
+    "winner_trap_diagnostic": {
+      "actual_winner_counts": {
+        "1": 517,
+        "2": 478,
+        "3": 448,
+        "4": 448,
+        "5": 401,
+        "6": 434
+      },
+      "predicted_winner_counts": {
+        "1": 613,
+        "2": 513,
+        "3": 434,
+        "4": 401,
+        "5": 343,
+        "6": 422
+      },
+      "winner_accuracy_by_actual_trap": {
+        "1": 0.4506769825918762,
+        "2": 0.38493723849372385,
+        "3": 0.3236607142857143,
+        "4": 0.30580357142857145,
+        "5": 0.27680798004987534,
+        "6": 0.33640552995391704
+      }
+    }
+  },
+  "best_epoch": {
+    "epoch": 1,
+    "train_loss": 0.04361000216836594,
+    "train_winner_accuracy": 0.3405504587155963,
+    "train_exact_order_accuracy": 0.007981651376146788,
+    "validation_loss": 0.043599216986259216,
+    "validation_winner_accuracy": 0.35069699192956716,
+    "validation_top3_set_accuracy": 0.15297138664710197,
+    "validation_exact_order_accuracy": 0.00880410858400587,
+    "validation_mean_abs_rank_error": 1.5023233064318906,
+    "winner_trap_diagnostic": {
+      "actual_winner_counts": {
+        "1": 517,
+        "2": 478,
+        "3": 448,
+        "4": 448,
+        "5": 401,
+        "6": 434
+      },
+      "predicted_winner_counts": {
+        "1": 613,
+        "2": 513,
+        "3": 434,
+        "4": 401,
+        "5": 343,
+        "6": 422
+      },
+      "winner_accuracy_by_actual_trap": {
+        "1": 0.4506769825918762,
+        "2": 0.38493723849372385,
+        "3": 0.3236607142857143,
+        "4": 0.30580357142857145,
+        "5": 0.27680798004987534,
+        "6": 0.33640552995391704
+      }
+    }
+  },
+  "last_epoch": {
+    "epoch": 1,
+    "train_loss": 0.04361000216836594,
+    "train_winner_accuracy": 0.3405504587155963,
+    "train_exact_order_accuracy": 0.007981651376146788,
+    "validation_loss": 0.043599216986259216,
+    "validation_winner_accuracy": 0.35069699192956716,
+    "validation_top3_set_accuracy": 0.15297138664710197,
+    "validation_exact_order_accuracy": 0.00880410858400587,
+    "validation_mean_abs_rank_error": 1.5023233064318906,
+    "winner_trap_diagnostic": {
+      "actual_winner_counts": {
+        "1": 517,
+        "2": 478,
+        "3": 448,
+        "4": 448,
+        "5": 401,
+        "6": 434
+      },
+      "predicted_winner_counts": {
+        "1": 613,
+        "2": 513,
+        "3": 434,
+        "4": 401,
+        "5": 343,
+        "6": 422
+      },
+      "winner_accuracy_by_actual_trap": {
+        "1": 0.4506769825918762,
+        "2": 0.38493723849372385,
+        "3": 0.3236607142857143,
+        "4": 0.30580357142857145,
+        "5": 0.27680798004987534,
+        "6": 0.33640552995391704
+      }
+    }
+  },
+  "config": {
+    "model_type": "permutation",
+    "resume_from_artifact": "/Users/tomarnautovic/dev/greyhounds/artifacts/models/train-20260419185328-be3b17e3.pt",
+    "epochs": 1,
+    "batch_size": 64,
+    "learning_rate": 0.0005,
+    "hidden_size_1": 128,
+    "hidden_size_2": 64,
+    "dropout": 0.2,
+    "validation_fraction": 0.2,
+    "weight_decay": 1e-05,
+    "seed": 42,
+    "max_runners": 6,
+    "min_completed_races": 25,
+    "permutations_per_race": 48,
+    "permutation_runner_limit": 6
+  },
+  "progress_error": null,
+  "training_log_path": "/Users/tomarnautovic/dev/greyhounds/artifacts/logs/train-20260420065735-af24a583.jsonl"
+}

@@ -1,0 +1,910 @@
+{
+  "run_key": "train-20260422072422-7175f3a9",
+  "generated_at": "2026-04-22T07:33:15.243222+00:00",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 3.4501148104016246,
+      "train_winner_accuracy": 0.3367512603605913,
+      "train_exact_order_accuracy": 0.019225839528326072,
+      "validation_loss": 6.266483964324575,
+      "validation_winner_accuracy": 0.3155856727976767,
+      "validation_top3_set_accuracy": 0.1393998063891578,
+      "validation_exact_order_accuracy": 0.006776379477250726,
+      "validation_mean_abs_rank_error": 1.5621168118747983,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 235,
+          "2": 347,
+          "3": 404,
+          "4": 415,
+          "5": 352,
+          "6": 313
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.24129353233830847,
+          "2": 0.2926829268292683,
+          "3": 0.3622291021671827,
+          "4": 0.3850574712643678,
+          "5": 0.3044982698961938,
+          "6": 0.32238805970149254
+        }
+      }
+    },
+    {
+      "epoch": 2,
+      "train_loss": 3.4708219304110837,
+      "train_winner_accuracy": 0.3437580107664701,
+      "train_exact_order_accuracy": 0.022900111082628388,
+      "validation_loss": 6.277043901939244,
+      "validation_winner_accuracy": 0.3165537270087125,
+      "validation_top3_set_accuracy": 0.13165537270087124,
+      "validation_exact_order_accuracy": 0.005808325266214908,
+      "validation_mean_abs_rank_error": 1.5734107776702162,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 278,
+          "2": 362,
+          "3": 400,
+          "4": 391,
+          "5": 329,
+          "6": 306
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.26119402985074625,
+          "2": 0.3224932249322493,
+          "3": 0.3653250773993808,
+          "4": 0.35344827586206895,
+          "5": 0.28027681660899656,
+          "6": 0.32238805970149254
+        }
+      }
+    },
+    {
+      "epoch": 3,
+      "train_loss": 3.444224005839864,
+      "train_winner_accuracy": 0.3520464838075707,
+      "train_exact_order_accuracy": 0.028625138853285482,
+      "validation_loss": 6.283133913794423,
+      "validation_winner_accuracy": 0.3194578896418199,
+      "validation_top3_set_accuracy": 0.13891577928363988,
+      "validation_exact_order_accuracy": 0.005324298160696999,
+      "validation_mean_abs_rank_error": 1.5609874152952565,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 282,
+          "2": 358,
+          "3": 402,
+          "4": 399,
+          "5": 325,
+          "6": 300
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2736318407960199,
+          "2": 0.3062330623306233,
+          "3": 0.3746130030959752,
+          "4": 0.367816091954023,
+          "5": 0.30103806228373703,
+          "6": 0.30149253731343284
+        }
+      }
+    },
+    {
+      "epoch": 4,
+      "train_loss": 3.420551834210672,
+      "train_winner_accuracy": 0.3511065538750748,
+      "train_exact_order_accuracy": 0.03255575493463215,
+      "validation_loss": 6.307290191110313,
+      "validation_winner_accuracy": 0.3213939980638916,
+      "validation_top3_set_accuracy": 0.13068731848983542,
+      "validation_exact_order_accuracy": 0.005808325266214908,
+      "validation_mean_abs_rank_error": 1.569377218457567,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 291,
+          "2": 371,
+          "3": 382,
+          "4": 406,
+          "5": 299,
+          "6": 317
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.26865671641791045,
+          "2": 0.3170731707317073,
+          "3": 0.34365325077399383,
+          "4": 0.3649425287356322,
+          "5": 0.29411764705882354,
+          "6": 0.34626865671641793
+        }
+      }
+    },
+    {
+      "epoch": 5,
+      "train_loss": 3.388062624332032,
+      "train_winner_accuracy": 0.3564897889430061,
+      "train_exact_order_accuracy": 0.03776809365120055,
+      "validation_loss": 6.336630465677378,
+      "validation_winner_accuracy": 0.31994191674733785,
+      "validation_top3_set_accuracy": 0.1355275895450145,
+      "validation_exact_order_accuracy": 0.00484027105517909,
+      "validation_mean_abs_rank_error": 1.569861245563085,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 305,
+          "2": 419,
+          "3": 381,
+          "4": 388,
+          "5": 281,
+          "6": 292
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.3009950248756219,
+          "2": 0.3523035230352303,
+          "3": 0.3560371517027864,
+          "4": 0.35344827586206895,
+          "5": 0.25259515570934254,
+          "6": 0.2955223880597015
+        }
+      }
+    },
+    {
+      "epoch": 6,
+      "train_loss": 3.3694499607294635,
+      "train_winner_accuracy": 0.353242758267111,
+      "train_exact_order_accuracy": 0.04374946594890199,
+      "validation_loss": 6.355558231631646,
+      "validation_winner_accuracy": 0.3073572120038722,
+      "validation_top3_set_accuracy": 0.12391093901258471,
+      "validation_exact_order_accuracy": 0.007260406582768635,
+      "validation_mean_abs_rank_error": 1.5864795095191997,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 299,
+          "2": 408,
+          "3": 396,
+          "4": 392,
+          "5": 285,
+          "6": 286
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.27611940298507465,
+          "2": 0.3252032520325203,
+          "3": 0.3653250773993808,
+          "4": 0.3218390804597701,
+          "5": 0.2491349480968858,
+          "6": 0.3044776119402985
+        }
+      }
+    },
+    {
+      "epoch": 7,
+      "train_loss": 3.327325835254023,
+      "train_winner_accuracy": 0.35734427069982055,
+      "train_exact_order_accuracy": 0.053063317098179956,
+      "validation_loss": 6.386101089857901,
+      "validation_winner_accuracy": 0.3213939980638916,
+      "validation_top3_set_accuracy": 0.12245885769603097,
+      "validation_exact_order_accuracy": 0.00484027105517909,
+      "validation_mean_abs_rank_error": 1.5879315908357534,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 294,
+          "2": 408,
+          "3": 372,
+          "4": 410,
+          "5": 286,
+          "6": 296
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.29850746268656714,
+          "2": 0.34146341463414637,
+          "3": 0.33746130030959753,
+          "4": 0.3620689655172414,
+          "5": 0.25951557093425603,
+          "6": 0.32238805970149254
+        }
+      }
+    },
+    {
+      "epoch": 8,
+      "train_loss": 3.298297327072894,
+      "train_winner_accuracy": 0.36059130137571566,
+      "train_exact_order_accuracy": 0.05554131419294198,
+      "validation_loss": 6.417908590276151,
+      "validation_winner_accuracy": 0.31026137463697967,
+      "validation_top3_set_accuracy": 0.1287512100677638,
+      "validation_exact_order_accuracy": 0.003388189738625363,
+      "validation_mean_abs_rank_error": 1.5897063568893193,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 299,
+          "2": 379,
+          "3": 394,
+          "4": 401,
+          "5": 284,
+          "6": 309
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2736318407960199,
+          "2": 0.3035230352303523,
+          "3": 0.35294117647058826,
+          "4": 0.367816091954023,
+          "5": 0.2422145328719723,
+          "6": 0.3194029850746269
+        }
+      }
+    },
+    {
+      "epoch": 9,
+      "train_loss": 3.2669502581403553,
+      "train_winner_accuracy": 0.3690506707681791,
+      "train_exact_order_accuracy": 0.06434247628813125,
+      "validation_loss": 6.472273593835194,
+      "validation_winner_accuracy": 0.31848983543078413,
+      "validation_top3_set_accuracy": 0.13068731848983542,
+      "validation_exact_order_accuracy": 0.00484027105517909,
+      "validation_mean_abs_rank_error": 1.5977734753146176,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 311,
+          "2": 386,
+          "3": 359,
+          "4": 380,
+          "5": 310,
+          "6": 320
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2960199004975124,
+          "2": 0.3224932249322493,
+          "3": 0.35294117647058826,
+          "4": 0.3275862068965517,
+          "5": 0.2664359861591695,
+          "6": 0.34328358208955223
+        }
+      }
+    },
+    {
+      "epoch": 10,
+      "train_loss": 3.243159516912992,
+      "train_winner_accuracy": 0.36947791164658633,
+      "train_exact_order_accuracy": 0.07237460480218748,
+      "validation_loss": 6.501256570811424,
+      "validation_winner_accuracy": 0.3054211035818006,
+      "validation_top3_set_accuracy": 0.1292352371732817,
+      "validation_exact_order_accuracy": 0.002420135527589545,
+      "validation_mean_abs_rank_error": 1.5940626008389804,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 277,
+          "2": 374,
+          "3": 379,
+          "4": 396,
+          "5": 287,
+          "6": 353
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2462686567164179,
+          "2": 0.3035230352303523,
+          "3": 0.3591331269349845,
+          "4": 0.3620689655172414,
+          "5": 0.23183391003460208,
+          "6": 0.33134328358208953
+        }
+      }
+    },
+    {
+      "epoch": 11,
+      "train_loss": 3.2045016236643975,
+      "train_winner_accuracy": 0.3693924634709049,
+      "train_exact_order_accuracy": 0.07809963257284457,
+      "validation_loss": 6.545391620878791,
+      "validation_winner_accuracy": 0.3010648596321394,
+      "validation_top3_set_accuracy": 0.12149080348499516,
+      "validation_exact_order_accuracy": 0.00484027105517909,
+      "validation_mean_abs_rank_error": 1.611326234269119,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 307,
+          "2": 412,
+          "3": 367,
+          "4": 371,
+          "5": 293,
+          "6": 316
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2810945273631841,
+          "2": 0.3224932249322493,
+          "3": 0.34055727554179566,
+          "4": 0.3132183908045977,
+          "5": 0.2179930795847751,
+          "6": 0.32238805970149254
+        }
+      }
+    },
+    {
+      "epoch": 12,
+      "train_loss": 3.1766701409074125,
+      "train_winner_accuracy": 0.37580107664701357,
+      "train_exact_order_accuracy": 0.08655900196530804,
+      "validation_loss": 6.567691926457644,
+      "validation_winner_accuracy": 0.30493707647628265,
+      "validation_top3_set_accuracy": 0.11761858664085188,
+      "validation_exact_order_accuracy": 0.002904162633107454,
+      "validation_mean_abs_rank_error": 1.6034204582123266,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 291,
+          "2": 347,
+          "3": 386,
+          "4": 370,
+          "5": 322,
+          "6": 350
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.27860696517412936,
+          "2": 0.2872628726287263,
+          "3": 0.3622291021671827,
+          "4": 0.31896551724137934,
+          "5": 0.25951557093425603,
+          "6": 0.3253731343283582
+        }
+      }
+    },
+    {
+      "epoch": 13,
+      "train_loss": 3.1327860133895458,
+      "train_winner_accuracy": 0.37768093651200546,
+      "train_exact_order_accuracy": 0.09219858156028368,
+      "validation_loss": 6.589805713350752,
+      "validation_winner_accuracy": 0.30396902226524686,
+      "validation_top3_set_accuracy": 0.12536302032913843,
+      "validation_exact_order_accuracy": 0.004356243949661181,
+      "validation_mean_abs_rank_error": 1.6022910616327848,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 292,
+          "2": 366,
+          "3": 363,
+          "4": 382,
+          "5": 313,
+          "6": 350
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.26865671641791045,
+          "2": 0.2926829268292683,
+          "3": 0.3622291021671827,
+          "4": 0.3333333333333333,
+          "5": 0.25259515570934254,
+          "6": 0.3164179104477612
+        }
+      }
+    },
+    {
+      "epoch": 14,
+      "train_loss": 3.1052946288728975,
+      "train_winner_accuracy": 0.3857130650260617,
+      "train_exact_order_accuracy": 0.09809450568230368,
+      "validation_loss": 6.682609008450245,
+      "validation_winner_accuracy": 0.3073572120038722,
+      "validation_top3_set_accuracy": 0.12391093901258471,
+      "validation_exact_order_accuracy": 0.005324298160696999,
+      "validation_mean_abs_rank_error": 1.5982575024201355,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 309,
+          "2": 394,
+          "3": 367,
+          "4": 382,
+          "5": 282,
+          "6": 332
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.27611940298507465,
+          "2": 0.33062330623306235,
+          "3": 0.34674922600619196,
+          "4": 0.3160919540229885,
+          "5": 0.25259515570934254,
+          "6": 0.3194029850746269
+        }
+      }
+    },
+    {
+      "epoch": 15,
+      "train_loss": 3.06845365586828,
+      "train_winner_accuracy": 0.38836195847218663,
+      "train_exact_order_accuracy": 0.1064684268990857,
+      "validation_loss": 6.696490924736883,
+      "validation_winner_accuracy": 0.30977734753146174,
+      "validation_top3_set_accuracy": 0.12294288480154889,
+      "validation_exact_order_accuracy": 0.003872216844143272,
+      "validation_mean_abs_rank_error": 1.6243949661181025,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 331,
+          "2": 410,
+          "3": 358,
+          "4": 362,
+          "5": 278,
+          "6": 327
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2935323383084577,
+          "2": 0.33062330623306235,
+          "3": 0.33746130030959753,
+          "4": 0.33045977011494254,
+          "5": 0.2698961937716263,
+          "6": 0.29253731343283584
+        }
+      }
+    },
+    {
+      "epoch": 16,
+      "train_loss": 3.0373819369435964,
+      "train_winner_accuracy": 0.3914380927967188,
+      "train_exact_order_accuracy": 0.11108262838588397,
+      "validation_loss": 6.777833285140161,
+      "validation_winner_accuracy": 0.30348499515972893,
+      "validation_top3_set_accuracy": 0.11665053242981607,
+      "validation_exact_order_accuracy": 0.004356243949661181,
+      "validation_mean_abs_rank_error": 1.621974830590513,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 299,
+          "2": 373,
+          "3": 326,
+          "4": 385,
+          "5": 303,
+          "6": 380
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.263681592039801,
+          "2": 0.3116531165311653,
+          "3": 0.3065015479876161,
+          "4": 0.3390804597701149,
+          "5": 0.2560553633217993,
+          "6": 0.34328358208955223
+        }
+      }
+    },
+    {
+      "epoch": 17,
+      "train_loss": 3.0065289638081536,
+      "train_winner_accuracy": 0.39263436725625905,
+      "train_exact_order_accuracy": 0.11646586345381527,
+      "validation_loss": 6.76352177351165,
+      "validation_winner_accuracy": 0.3092933204259439,
+      "validation_top3_set_accuracy": 0.12439496611810262,
+      "validation_exact_order_accuracy": 0.005324298160696999,
+      "validation_mean_abs_rank_error": 1.6037431429493385,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 290,
+          "2": 344,
+          "3": 362,
+          "4": 385,
+          "5": 318,
+          "6": 367
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.27860696517412936,
+          "2": 0.2899728997289973,
+          "3": 0.33436532507739936,
+          "4": 0.3505747126436782,
+          "5": 0.27335640138408307,
+          "6": 0.33134328358208953
+        }
+      }
+    },
+    {
+      "epoch": 18,
+      "train_loss": 2.9859658017184567,
+      "train_winner_accuracy": 0.39972656583781935,
+      "train_exact_order_accuracy": 0.12842860804921816,
+      "validation_loss": 6.913801711272639,
+      "validation_winner_accuracy": 0.30300096805421106,
+      "validation_top3_set_accuracy": 0.11519845111326234,
+      "validation_exact_order_accuracy": 0.002420135527589545,
+      "validation_mean_abs_rank_error": 1.622620200064537,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 282,
+          "2": 368,
+          "3": 366,
+          "4": 390,
+          "5": 308,
+          "6": 352
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.263681592039801,
+          "2": 0.3062330623306233,
+          "3": 0.3281733746130031,
+          "4": 0.33045977011494254,
+          "5": 0.2906574394463668,
+          "6": 0.3044776119402985
+        }
+      }
+    },
+    {
+      "epoch": 19,
+      "train_loss": 2.9521374233433457,
+      "train_winner_accuracy": 0.4040844227975733,
+      "train_exact_order_accuracy": 0.133726394941468,
+      "validation_loss": 6.9275109554421865,
+      "validation_winner_accuracy": 0.30977734753146174,
+      "validation_top3_set_accuracy": 0.12100677637947725,
+      "validation_exact_order_accuracy": 0.004356243949661181,
+      "validation_mean_abs_rank_error": 1.6103581800580833,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 328,
+          "2": 386,
+          "3": 367,
+          "4": 380,
+          "5": 286,
+          "6": 319
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.3009950248756219,
+          "2": 0.3089430894308943,
+          "3": 0.33746130030959753,
+          "4": 0.34770114942528735,
+          "5": 0.23875432525951557,
+          "6": 0.3164179104477612
+        }
+      }
+    },
+    {
+      "epoch": 20,
+      "train_loss": 2.934753595154142,
+      "train_winner_accuracy": 0.4027172519866701,
+      "train_exact_order_accuracy": 0.13705887379304452,
+      "validation_loss": 6.966602855245696,
+      "validation_winner_accuracy": 0.2850919651500484,
+      "validation_top3_set_accuracy": 0.12294288480154889,
+      "validation_exact_order_accuracy": 0.003872216844143272,
+      "validation_mean_abs_rank_error": 1.6361729590190384,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 315,
+          "2": 363,
+          "3": 398,
+          "4": 394,
+          "5": 272,
+          "6": 324
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.24875621890547264,
+          "2": 0.2791327913279133,
+          "3": 0.33126934984520123,
+          "4": 0.33045977011494254,
+          "5": 0.22837370242214533,
+          "6": 0.29253731343283584
+        }
+      }
+    },
+    {
+      "epoch": 21,
+      "train_loss": 2.899164219371608,
+      "train_winner_accuracy": 0.40767324617619416,
+      "train_exact_order_accuracy": 0.1451764504827822,
+      "validation_loss": 6.9924952561488345,
+      "validation_winner_accuracy": 0.29912875121006777,
+      "validation_top3_set_accuracy": 0.12052274927395934,
+      "validation_exact_order_accuracy": 0.003872216844143272,
+      "validation_mean_abs_rank_error": 1.6181026137463699,
+      "winner_trap_diagnostic": {
+        "actual_winner_counts": {
+          "1": 402,
+          "2": 369,
+          "3": 323,
+          "4": 348,
+          "5": 289,
+          "6": 335
+        },
+        "predicted_winner_counts": {
+          "1": 322,
+          "2": 378,
+          "3": 361,
+          "4": 340,
+          "5": 306,
+          "6": 359
+        },
+        "winner_accuracy_by_actual_trap": {
+          "1": 0.2860696517412935,
+          "2": 0.2953929539295393,
+          "3": 0.30959752321981426,
+          "4": 0.28735632183908044,
+          "5": 0.2629757785467128,
+          "6": 0.3522388059701492
+        }
+      }
+    }
+  ],
+  "summary": {
+    "loss": 6.266483964324575,
+    "winner_accuracy": 0.3155856727976767,
+    "top3_set_accuracy": 0.1393998063891578,
+    "exact_order_accuracy": 0.006776379477250726,
+    "mean_abs_rank_error": 1.5621168118747983,
+    "winner_trap_diagnostic": {
+      "actual_winner_counts": {
+        "1": 402,
+        "2": 369,
+        "3": 323,
+        "4": 348,
+        "5": 289,
+        "6": 335
+      },
+      "predicted_winner_counts": {
+        "1": 235,
+        "2": 347,
+        "3": 404,
+        "4": 415,
+        "5": 352,
+        "6": 313
+      },
+      "winner_accuracy_by_actual_trap": {
+        "1": 0.24129353233830847,
+        "2": 0.2926829268292683,
+        "3": 0.3622291021671827,
+        "4": 0.3850574712643678,
+        "5": 0.3044982698961938,
+        "6": 0.32238805970149254
+      }
+    }
+  },
+  "best_epoch": {
+    "epoch": 1,
+    "train_loss": 3.4501148104016246,
+    "train_winner_accuracy": 0.3367512603605913,
+    "train_exact_order_accuracy": 0.019225839528326072,
+    "validation_loss": 6.266483964324575,
+    "validation_winner_accuracy": 0.3155856727976767,
+    "validation_top3_set_accuracy": 0.1393998063891578,
+    "validation_exact_order_accuracy": 0.006776379477250726,
+    "validation_mean_abs_rank_error": 1.5621168118747983,
+    "winner_trap_diagnostic": {
+      "actual_winner_counts": {
+        "1": 402,
+        "2": 369,
+        "3": 323,
+        "4": 348,
+        "5": 289,
+        "6": 335
+      },
+      "predicted_winner_counts": {
+        "1": 235,
+        "2": 347,
+        "3": 404,
+        "4": 415,
+        "5": 352,
+        "6": 313
+      },
+      "winner_accuracy_by_actual_trap": {
+        "1": 0.24129353233830847,
+        "2": 0.2926829268292683,
+        "3": 0.3622291021671827,
+        "4": 0.3850574712643678,
+        "5": 0.3044982698961938,
+        "6": 0.32238805970149254
+      }
+    }
+  },
+  "last_epoch": {
+    "epoch": 21,
+    "train_loss": 2.899164219371608,
+    "train_winner_accuracy": 0.40767324617619416,
+    "train_exact_order_accuracy": 0.1451764504827822,
+    "validation_loss": 6.9924952561488345,
+    "validation_winner_accuracy": 0.29912875121006777,
+    "validation_top3_set_accuracy": 0.12052274927395934,
+    "validation_exact_order_accuracy": 0.003872216844143272,
+    "validation_mean_abs_rank_error": 1.6181026137463699,
+    "winner_trap_diagnostic": {
+      "actual_winner_counts": {
+        "1": 402,
+        "2": 369,
+        "3": 323,
+        "4": 348,
+        "5": 289,
+        "6": 335
+      },
+      "predicted_winner_counts": {
+        "1": 322,
+        "2": 378,
+        "3": 361,
+        "4": 340,
+        "5": 306,
+        "6": 359
+      },
+      "winner_accuracy_by_actual_trap": {
+        "1": 0.2860696517412935,
+        "2": 0.2953929539295393,
+        "3": 0.30959752321981426,
+        "4": 0.28735632183908044,
+        "5": 0.2629757785467128,
+        "6": 0.3522388059701492
+      }
+    }
+  },
+  "config": {
+    "model_type": "permutation",
+    "resume_from_artifact": "/Users/tomarnautovic/dev/greyhounds/artifacts/models/train-20260422065729-ddd0bf87.pt",
+    "epochs": 40,
+    "batch_size": 64,
+    "learning_rate": 0.0005,
+    "hidden_size_1": 128,
+    "hidden_size_2": 64,
+    "dropout": 0.2,
+    "validation_fraction": 0.15,
+    "weight_decay": 1e-05,
+    "seed": 42,
+    "max_runners": 6,
+    "min_completed_races": 25,
+    "permutations_per_race": 48,
+    "permutation_runner_limit": 6,
+    "early_stopping_patience": 20
+  },
+  "progress_error": null,
+  "training_log_path": "/Users/tomarnautovic/dev/greyhounds/artifacts/logs/train-20260422072422-7175f3a9.jsonl"
+}
