@@ -212,6 +212,31 @@ class PredictionEntry(Base):
     dog: Mapped[Dog | None] = relationship()
 
 
+class PredictionRunScore(TimestampMixin, Base):
+    __tablename__ = "prediction_run_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prediction_run_id: Mapped[int] = mapped_column(ForeignKey("prediction_runs.id"), unique=True, nullable=False)
+    race_id: Mapped[int] = mapped_column(ForeignKey("races.id"), nullable=False)
+    training_run_id: Mapped[int | None] = mapped_column(ForeignKey("training_runs.id"), nullable=True)
+    race_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    race_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    track_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    distance_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    grade: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    winner_accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    top3_set_accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    exact_order_accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    mean_abs_rank_error: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_gap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    predicted_winner_trap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_winner_trap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    predicted_order_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    actual_order_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+
 def slugify(value: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return cleaned or "unknown"
@@ -317,6 +342,16 @@ def recent_training_runs(session: Session, limit: int = 20) -> list[TrainingRun]
 
 def recent_prediction_runs(session: Session, limit: int = 20) -> list[PredictionRun]:
     statement = select(PredictionRun).order_by(PredictionRun.created_at.desc()).limit(limit)
+    return list(session.scalars(statement))
+
+
+def prediction_run_scores(session: Session, limit: int | None = None) -> list[PredictionRunScore]:
+    statement = select(PredictionRunScore).order_by(
+        PredictionRunScore.scheduled_start.desc(),
+        PredictionRunScore.created_at.desc(),
+    )
+    if limit is not None:
+        statement = statement.limit(limit)
     return list(session.scalars(statement))
 
 

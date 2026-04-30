@@ -16,12 +16,18 @@ from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_r
 from greyhounds.config import Settings
 from greyhounds.db import (
     Dog,
+    PredictionEntry,
+    PredictionRun,
+    PredictionRunScore,
     Race,
     RaceEntry,
     TrainingRun,
     Track,
+    active_training_run,
+    init_database,
     latest_completed_training_run,
     latest_training_run,
+    prediction_run_scores,
     recent_prediction_runs,
     recent_training_runs,
     session_scope,
@@ -50,11 +56,14 @@ st.set_page_config(page_title="Greyhounds ANN Monitor", page_icon="🏁", layout
 
 settings = Settings.from_env()
 settings.ensure_directories()
+init_database(settings)
 
 TRAINING_LAUNCH_FEEDBACK_KEY = "training_launch_feedback"
-MAIN_PAGE_TABS = ("Import", "Search", "Training", "Weights", "Prediction")
+MAIN_PAGE_TABS = ("Auto", "Import", "Training", "Prediction", "Search")
 MAIN_PAGE_TAB_QUERY_PARAM = "tab"
 MAIN_PAGE_TAB_STATE_KEY = "main_page_tab"
+AUTO_MODE_TIMEZONE = ZoneInfo("Europe/London")
+AUTO_MODE_STATE_VERSION = 1
 
 
 def _training_config_draft_path(_settings: Settings) -> Path:
@@ -637,7 +646,8 @@ def _read_training_log_events(log_path: Path | None) -> list[dict[str, object]]:
         return []
     events: list[dict[str, object]] = []
     try:
-        for line in log_path.read_text(encoding="utf-8").splitlines():
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
             if not line.strip():
                 continue
             try:
@@ -649,6 +659,25 @@ def _read_training_log_events(log_path: Path | None) -> list[dict[str, object]]:
     except OSError:
         return []
     return events
+
+
+def _nonempty_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _training_run_reason(run: TrainingRun | None) -> str | None:
+    if run is None:
+        return None
+    return _nonempty_text(run.error_text)
+
+
+def _training_event_reason(event: dict[str, object] | None) -> str | None:
+    if not isinstance(event, dict):
+        return None
+    return _nonempty_text(event.get("stop_reason")) or _nonempty_text(event.get("error"))
 
 
 def _event_age_seconds(event: dict[str, object] | None) -> float | None:
@@ -791,6 +820,89 @@ def _ensure_training_widget_defaults(initial_config: dict[str, object]) -> None:
             st.session_state[widget_key] = default_value
 
 
+def _training_config_from_state(*, max_epochs: int | None = None) -> dict[str, object]:
+    epochs = int(st.session_state.get(TRAINING_WIDGET_KEYS["epochs"], 60))
+    if max_epochs is not None:
+        epochs = min(epochs, int(max_epochs))
+    return {
+        "epochs": epochs,
+        "batch_size": int(st.session_state.get(TRAINING_WIDGET_KEYS["batch_size"], 32)),
+        "learning_rate": float(st.session_state.get(TRAINING_WIDGET_KEYS["learning_rate"], 0.001)),
+        "hidden_size_1": int(st.session_state.get(TRAINING_WIDGET_KEYS["hidden_size_1"], 128)),
+        "hidden_size_2": int(st.session_state.get(TRAINING_WIDGET_KEYS["hidden_size_2"], 64)),
+        "dropout": float(st.session_state.get(TRAINING_WIDGET_KEYS["dropout"], 0.15)),
+        "validation_fraction": float(st.session_state.get(TRAINING_WIDGET_KEYS["validation_fraction"], 0.2)),
+        "weight_decay": float(st.session_state.get(TRAINING_WIDGET_KEYS["weight_decay"], 0.00001)),
+        "min_completed_races": int(st.session_state.get(TRAINING_WIDGET_KEYS["min_completed_races"], 25)),
+        "permutations_per_race": int(st.session_state.get(TRAINING_WIDGET_KEYS["permutations_per_race"], 24)),
+        "permutation_runner_limit": 6,
+        "early_stopping_patience": int(st.session_state.get(TRAINING_WIDGET_KEYS["early_stopping_patience"], 20)),
+    }
+
+
+def _build_training_config(
+    _settings: Settings,
+    config: dict[str, object],
+    *,
+    resume_artifact: str | None = None,
+) -> TrainingConfig:
+    return TrainingConfig(
+        epochs=int(config["epochs"]),
+        batch_size=int(config["batch_size"]),
+        learning_rate=float(config["learning_rate"]),
+        hidden_size_1=int(config["hidden_size_1"]),
+        hidden_size_2=int(config["hidden_size_2"]),
+        dropout=float(config["dropout"]),
+        validation_fraction=float(config["validation_fraction"]),
+        weight_decay=float(config["weight_decay"]),
+        max_runners=_settings.max_runners,
+        min_completed_races=int(config["min_completed_races"]),
+        model_type="permutation",
+        resume_from_artifact=resume_artifact,
+        permutations_per_race=int(config["permutations_per_race"]),
+        permutation_runner_limit=int(config["permutation_runner_limit"]),
+        early_stopping_patience=int(config["early_stopping_patience"]),
+    )
+
+
+def _auto_mode_state_path(_settings: Settings) -> Path:
+    return _settings.artifacts_dir / "auto_mode_state.json"
+
+
+def _load_auto_mode_state(_settings: Settings) -> dict[str, object]:
+    state_path = _auto_mode_state_path(_settings)
+    if not state_path.exists():
+        return {"version": AUTO_MODE_STATE_VERSION, "events": []}
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"version": AUTO_MODE_STATE_VERSION, "events": []}
+    if not isinstance(payload, dict):
+        return {"version": AUTO_MODE_STATE_VERSION, "events": []}
+    payload.setdefault("version", AUTO_MODE_STATE_VERSION)
+    payload.setdefault("events", [])
+    return payload
+
+
+def _save_auto_mode_state(_settings: Settings, state: dict[str, object]) -> None:
+    state_path = _auto_mode_state_path(_settings)
+    state_path.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+
+
+def _append_auto_mode_event(state: dict[str, object], message: str, *, level: str = "info") -> None:
+    events = state.get("events")
+    if not isinstance(events, list):
+        events = []
+    events.append(
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+        }
+    )
+    state["events"] = events[-80:]
+
+
 def _load_racecard_snapshot(
     _settings: Settings,
     race_date_value: date,
@@ -822,6 +934,806 @@ def _predicted_dog_name(prediction: dict[str, object], rank_index: int) -> str |
     return _format_prediction_runner(row)
 
 
+def _format_metric_or_na(value: object, decimals: int = 3) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    try:
+        return f"{float(value):.{decimals}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _unscored_prediction_runs(session: Session) -> list[PredictionRun]:
+    statement = (
+        select(PredictionRun)
+        .join(PredictionRun.race)
+        .outerjoin(PredictionRunScore, PredictionRunScore.prediction_run_id == PredictionRun.id)
+        .options(
+            selectinload(PredictionRun.race).selectinload(Race.track),
+            selectinload(PredictionRun.entries)
+            .selectinload(PredictionEntry.race_entry)
+            .selectinload(RaceEntry.dog),
+            selectinload(PredictionRun.entries).selectinload(PredictionEntry.dog),
+        )
+        .where(
+            Race.status.not_in(["canceled", "abandoned"]),
+            Race.scheduled_start <= datetime.now(timezone.utc),
+            PredictionRunScore.id.is_(None),
+        )
+        .order_by(PredictionRun.created_at.desc())
+    )
+    return list(session.scalars(statement).unique())
+
+
+def _actual_prediction_runner(entry: PredictionEntry) -> str | None:
+    race_entry = entry.race_entry
+    if race_entry is None:
+        return None
+    return _format_prediction_runner(
+        {
+            "dog_name": race_entry.dog.name if race_entry.dog else None,
+            "trap_number": race_entry.trap_number,
+        }
+    )
+
+
+def _prediction_order_preview(rows: list[str], limit: int = 4) -> str:
+    preview = [row for row in rows[:limit] if row]
+    return " > ".join(preview)
+
+
+def _prediction_entry_runner_row(entry: PredictionEntry) -> dict[str, object]:
+    race_entry = entry.race_entry
+    dog_name = None
+    trap_number = None
+    if race_entry is not None:
+        dog_name = race_entry.dog.name if race_entry.dog else None
+        trap_number = race_entry.trap_number
+    if dog_name is None and entry.dog is not None:
+        dog_name = entry.dog.name
+    return {
+        "dog_name": dog_name,
+        "trap_number": int(trap_number) if trap_number is not None else None,
+    }
+
+
+def _actual_race_order_rows(race: Race) -> list[dict[str, object]]:
+    actual_rows: list[dict[str, object]] = []
+    for entry in sorted(
+        [
+            item
+            for item in race.entries
+            if item.finish_position is not None and int(item.finish_position) > 0
+        ],
+        key=lambda item: int(item.finish_position or 0),
+    ):
+        actual_rows.append(
+            {
+                "finish_position": int(entry.finish_position or 0),
+                "trap_number": int(entry.trap_number),
+                "dog_name": entry.dog.name if entry.dog else None,
+                "sp": entry.sp_text,
+                "sp_decimal": float(entry.sp_decimal) if entry.sp_decimal is not None else None,
+            }
+        )
+    return actual_rows
+
+
+def _prediction_local_day_bounds(race: Race) -> tuple[datetime, datetime]:
+    local_timezone = ZoneInfo(race.track.timezone_name or "Europe/London") if race.track else ZoneInfo("Europe/London")
+    local_day = race.scheduled_start.astimezone(local_timezone).date()
+    start_local = datetime.combine(local_day, time.min, tzinfo=local_timezone)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _matching_settled_race_for_prediction(session: Session, run: PredictionRun) -> Race | None:
+    race = run.race
+    if race is None or race.track is None:
+        return None
+
+    actual_rows = _actual_race_order_rows(race)
+    if race.is_completed and any(int(row["finish_position"]) == 1 for row in actual_rows):
+        return race
+
+    predicted_entries = sorted(
+        [entry for entry in run.entries if entry.race_entry is not None or entry.dog is not None],
+        key=lambda entry: int(entry.predicted_rank),
+    )
+    predicted_key_set = {
+        key
+        for entry in predicted_entries
+        if (key := _prediction_runner_identity_key(_prediction_entry_runner_row(entry))) is not None
+    }
+    if not predicted_key_set:
+        return None
+
+    window_start, window_end = _prediction_local_day_bounds(race)
+    candidate_statement = (
+        select(Race)
+        .options(
+            selectinload(Race.track),
+            selectinload(Race.entries).selectinload(RaceEntry.dog),
+        )
+        .where(
+            Race.track_id == race.track_id,
+            Race.id != race.id,
+            Race.is_completed.is_(True),
+            Race.status.not_in(["canceled", "abandoned"]),
+            Race.scheduled_start >= window_start,
+            Race.scheduled_start < window_end,
+        )
+        .order_by(Race.scheduled_start.asc(), Race.id.asc())
+    )
+    candidates = list(session.scalars(candidate_statement).unique())
+    best_match: Race | None = None
+    best_score: tuple[int, int, int, float] | None = None
+    minimum_overlap = max(3, min(len(predicted_key_set), 4))
+    original_race_number = int(race.race_number) if race.race_number is not None else None
+
+    for candidate in candidates:
+        candidate_rows = _actual_race_order_rows(candidate)
+        candidate_key_set = {
+            key
+            for row in candidate_rows
+            if (key := _prediction_runner_identity_key(row)) is not None
+        }
+        overlap_count = len(predicted_key_set & candidate_key_set)
+        if overlap_count < minimum_overlap:
+            continue
+        same_runner_count = int(len(candidate_key_set) == len(predicted_key_set))
+        same_race_number = int(
+            original_race_number is not None
+            and candidate.race_number is not None
+            and int(candidate.race_number) == original_race_number
+        )
+        time_delta_seconds = abs((candidate.scheduled_start - race.scheduled_start).total_seconds())
+        candidate_score = (overlap_count, same_runner_count, same_race_number, -time_delta_seconds)
+        if best_score is None or candidate_score > best_score:
+            best_match = candidate
+            best_score = candidate_score
+
+    return best_match
+
+
+def _prediction_score_payload(session: Session, run: PredictionRun) -> dict[str, object] | None:
+    race = run.race
+    if race is None or not run.entries:
+        return None
+
+    predicted_entries = sorted(
+        [entry for entry in run.entries if entry.race_entry is not None or entry.dog is not None],
+        key=lambda entry: int(entry.predicted_rank),
+    )
+    if not predicted_entries:
+        return None
+
+    settled_race = _matching_settled_race_for_prediction(session, run)
+    if settled_race is None:
+        return None
+
+    predicted_rows = [_prediction_entry_runner_row(entry) for entry in predicted_entries]
+    predicted_keys = [
+        key
+        for row in predicted_rows
+        if (key := _prediction_runner_identity_key(row)) is not None
+    ]
+    predicted_rank_by_key = {
+        key: int(entry.predicted_rank)
+        for entry in predicted_entries
+        if (key := _prediction_runner_identity_key(_prediction_entry_runner_row(entry))) is not None
+    }
+    if not predicted_keys:
+        return None
+
+    actual_order_rows = _actual_race_order_rows(settled_race)
+    if not actual_order_rows or int(actual_order_rows[0]["finish_position"]) != 1:
+        return None
+
+    runner_count = len(predicted_keys)
+    top3_count = min(3, runner_count)
+    actual_keys = [
+        key
+        for row in actual_order_rows
+        if (key := _prediction_runner_identity_key(row)) is not None
+    ]
+    if not actual_keys:
+        return None
+
+    winner_key = actual_keys[0]
+    top3_positions = list(range(1, top3_count + 1))
+    actual_positions = [int(row["finish_position"]) for row in actual_order_rows]
+    has_top3_result = actual_positions[:top3_count] == top3_positions
+    has_full_order = actual_positions[:runner_count] == list(range(1, runner_count + 1))
+    top3_actual_keys = actual_keys[:top3_count] if has_top3_result else []
+    full_actual_keys = actual_keys[:runner_count] if has_full_order else []
+    known_rank_errors = [
+        abs(int(predicted_rank_by_key[key]) - int(row["finish_position"]))
+        for row in actual_order_rows
+        if (key := _prediction_runner_identity_key(row)) in predicted_rank_by_key
+    ]
+    mean_abs_rank_error = (
+        sum(known_rank_errors) / len(known_rank_errors)
+        if known_rank_errors
+        else float("nan")
+    )
+    confidence_gap = (run.metadata_json or {}).get("confidence_gap")
+    predicted_order_rows = [item for item in run.predicted_order_json if isinstance(item, dict)] or predicted_rows
+
+    return {
+        "prediction_run_id": int(run.id),
+        "race_id": int(race.id),
+        "training_run_id": int(run.training_run_id) if run.training_run_id is not None else None,
+        "race_key": race.race_key,
+        "race_name": race.race_name,
+        "track_name": race.track.name if race.track else "Unknown",
+        "scheduled_start": race.scheduled_start,
+        "distance_m": int(race.distance_m) if race.distance_m is not None else None,
+        "grade": race.grade,
+        "winner_accuracy": 1.0 if predicted_keys[0] == winner_key else 0.0,
+        "top3_set_accuracy": (
+            1.0 if set(predicted_keys[:top3_count]) == set(top3_actual_keys) else 0.0
+        ) if has_top3_result else float("nan"),
+        "exact_order_accuracy": (
+            1.0 if predicted_keys == full_actual_keys else 0.0
+        ) if has_full_order else float("nan"),
+        "mean_abs_rank_error": float(mean_abs_rank_error),
+        "confidence": float(run.confidence) if run.confidence is not None else None,
+        "confidence_gap": float(confidence_gap) if confidence_gap is not None else None,
+        "predicted_winner_trap": int(predicted_rows[0]["trap_number"]) if predicted_rows[0].get("trap_number") is not None else None,
+        "actual_winner_trap": int(actual_order_rows[0]["trap_number"]) if actual_order_rows[0].get("trap_number") is not None else None,
+        "predicted_order_json": predicted_order_rows,
+        "actual_order_json": actual_order_rows,
+    }
+
+
+def _sync_prediction_run_scores(_settings: Settings) -> int:
+    with session_scope(_settings) as session:
+        unscored_runs = _unscored_prediction_runs(session)
+        synced_count = 0
+        for run in unscored_runs:
+            payload = _prediction_score_payload(session, run)
+            if payload is None:
+                continue
+            session.add(PredictionRunScore(**payload))
+            synced_count += 1
+        return synced_count
+
+
+def _prediction_order_json_preview(rows: list[object], limit: int = 4) -> str:
+    preview = [
+        _format_prediction_runner(item)
+        for item in rows[:limit]
+        if isinstance(item, dict)
+    ]
+    return _prediction_order_preview([item for item in preview if item])
+
+
+def _prediction_runner_key(row: object) -> str | None:
+    if not isinstance(row, dict):
+        return None
+    trap_number = row.get("trap_number")
+    try:
+        if trap_number is not None and not pd.isna(trap_number):
+            return f"trap:{int(trap_number)}"
+    except (TypeError, ValueError):
+        pass
+    dog_name = row.get("dog_name")
+    if isinstance(dog_name, str):
+        normalized_name = dog_name.strip().casefold()
+        if normalized_name:
+            return f"dog:{normalized_name}"
+    return None
+
+
+def _prediction_runner_identity_key(row: object) -> str | None:
+    if not isinstance(row, dict):
+        return None
+    trap_number = row.get("trap_number")
+    dog_name = row.get("dog_name")
+    normalized_name = dog_name.strip().casefold() if isinstance(dog_name, str) and dog_name.strip() else None
+    try:
+        if trap_number is not None and not pd.isna(trap_number):
+            trap_value = int(trap_number)
+            if normalized_name:
+                return f"trap:{trap_value}|dog:{normalized_name}"
+            return f"trap:{trap_value}"
+    except (TypeError, ValueError):
+        pass
+    if normalized_name:
+        return f"dog:{normalized_name}"
+    return None
+
+
+def _prediction_prefix_accuracy(
+    predicted_rows: list[object],
+    actual_rows: list[object],
+    prefix_length: int,
+) -> float:
+    actual_prefix_rows = actual_rows[:prefix_length]
+    actual_finish_positions: list[int] = []
+    for row in actual_prefix_rows:
+        if not isinstance(row, dict):
+            return float("nan")
+        finish_position = row.get("finish_position")
+        try:
+            actual_finish_positions.append(int(finish_position))
+        except (TypeError, ValueError):
+            return float("nan")
+    if actual_finish_positions != list(range(1, prefix_length + 1)):
+        return float("nan")
+
+    predicted_keys = [
+        key
+        for row in predicted_rows[:prefix_length]
+        if (key := _prediction_runner_key(row)) is not None
+    ]
+    actual_keys = [
+        key
+        for row in actual_prefix_rows
+        if (key := _prediction_runner_key(row)) is not None
+    ]
+    if len(predicted_keys) < prefix_length or len(actual_keys) < prefix_length:
+        return float("nan")
+    return 1.0 if predicted_keys == actual_keys else 0.0
+
+
+def _format_prediction_outcome(value: object) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    try:
+        return "yes" if float(value) >= 0.5 else "no"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _decimal_odds_from_prediction_row(row: object) -> float | None:
+    if not isinstance(row, dict):
+        return None
+    for key in ("sp_decimal", "decimal_odds", "odds"):
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            decimal_odds = float(value)
+        except (TypeError, ValueError):
+            continue
+        if decimal_odds > 0:
+            return decimal_odds
+    return None
+
+
+def _winner_bet_profit_from_rows(predicted_rows: list[object], actual_rows: list[object]) -> tuple[float | None, float | None]:
+    predicted_winner_key = _prediction_runner_key(predicted_rows[0]) if predicted_rows else None
+    actual_winner_row = next(
+        (
+            row for row in actual_rows
+            if isinstance(row, dict) and _maybe_int(row.get("finish_position")) == 1
+        ),
+        None,
+    )
+    actual_winner_key = _prediction_runner_key(actual_winner_row)
+    if predicted_winner_key is None or actual_winner_key is None:
+        return None, None
+    if predicted_winner_key != actual_winner_key:
+        return -1.0, None
+
+    decimal_odds = _decimal_odds_from_prediction_row(actual_winner_row)
+    if decimal_odds is None:
+        return None, None
+    return decimal_odds - 1.0, decimal_odds
+
+
+def _format_units(value: object) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    try:
+        return f"{float(value):+.2f}u"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _prediction_score_row(score: PredictionRunScore) -> dict[str, object]:
+    predicted_order_rows = [row for row in score.predicted_order_json if isinstance(row, dict)]
+    actual_order_rows = [row for row in score.actual_order_json if isinstance(row, dict)]
+    runner_count = len(predicted_order_rows)
+    forecast_accuracy = _prediction_prefix_accuracy(predicted_order_rows, actual_order_rows, 2)
+    tricast_accuracy = _prediction_prefix_accuracy(predicted_order_rows, actual_order_rows, 3)
+    winner_bet_profit, winner_bet_odds = _winner_bet_profit_from_rows(predicted_order_rows, actual_order_rows)
+    random_winner_accuracy = (1.0 / runner_count) if runner_count >= 1 else float("nan")
+    random_forecast_accuracy = (
+        1.0 / (runner_count * (runner_count - 1))
+        if runner_count >= 2 and not pd.isna(forecast_accuracy)
+        else float("nan")
+    )
+    random_tricast_accuracy = (
+        1.0 / (runner_count * (runner_count - 1) * (runner_count - 2))
+        if runner_count >= 3 and not pd.isna(tricast_accuracy)
+        else float("nan")
+    )
+    return {
+        "prediction_run_id": int(score.prediction_run_id),
+        "race_key": score.race_key,
+        "race_name": score.race_name or score.race_key,
+        "track": score.track_name,
+        "distance_m": score.distance_m,
+        "grade": score.grade or "Unknown",
+        "scheduled_start_at": score.scheduled_start,
+        "scheduled_start": _format_display_datetime(score.scheduled_start),
+        "runner_count": runner_count,
+        "winner_accuracy": float(score.winner_accuracy),
+        "forecast_accuracy": forecast_accuracy,
+        "tricast_accuracy": tricast_accuracy,
+        "top3_set_accuracy": float(score.top3_set_accuracy),
+        "exact_order_accuracy": float(score.exact_order_accuracy),
+        "random_winner_accuracy": random_winner_accuracy,
+        "random_forecast_accuracy": random_forecast_accuracy,
+        "random_tricast_accuracy": random_tricast_accuracy,
+        "mean_abs_rank_error": float(score.mean_abs_rank_error),
+        "confidence": float(score.confidence) if score.confidence is not None else None,
+        "confidence_gap": float(score.confidence_gap) if score.confidence_gap is not None else None,
+        "winner_bet_profit": winner_bet_profit,
+        "winner_bet_odds": winner_bet_odds,
+        "predicted_winner_trap": int(score.predicted_winner_trap) if score.predicted_winner_trap is not None else None,
+        "actual_winner_trap": int(score.actual_winner_trap) if score.actual_winner_trap is not None else None,
+        "known_finishers": len(actual_order_rows),
+        "predicted_order": _prediction_order_json_preview(predicted_order_rows),
+        "actual_order": _prediction_order_json_preview(actual_order_rows),
+    }
+
+
+def _prediction_performance_dataframe(score_rows: list[PredictionRunScore]) -> pd.DataFrame:
+    if not score_rows:
+        return pd.DataFrame()
+    performance_df = pd.DataFrame([_prediction_score_row(score) for score in score_rows])
+    if performance_df.empty:
+        return performance_df
+    performance_df["scheduled_date"] = pd.to_datetime(performance_df["scheduled_start_at"]).dt.date
+    return performance_df
+
+
+def _metric_delta_vs_random(actual: object, random_baseline: object, *, percentage_points: bool = True) -> str | None:
+    if actual is None or random_baseline is None or pd.isna(actual) or pd.isna(random_baseline):
+        return None
+    try:
+        actual_value = float(actual)
+        random_value = float(random_baseline)
+    except (TypeError, ValueError):
+        return None
+    if random_value <= 0:
+        return None
+
+    ratio = actual_value / random_value
+    diff = actual_value - random_value
+    if percentage_points:
+        diff_label = f"{diff * 100:+.1f} pts"
+    else:
+        diff_label = f"{diff:+.3f}"
+    return f"{ratio:.2f}x random ({diff_label})"
+
+
+def _add_random_edge_columns(summary_df: pd.DataFrame) -> pd.DataFrame:
+    if summary_df.empty:
+        return summary_df
+
+    enriched_df = summary_df.copy()
+    for metric_name in ("winner", "forecast", "tricast"):
+        actual_column = f"{metric_name}_accuracy"
+        random_column = f"random_{metric_name}_accuracy"
+        ratio_column = f"{metric_name}_x_random"
+        enriched_df[ratio_column] = enriched_df[actual_column] / enriched_df[random_column]
+        enriched_df.loc[
+            enriched_df[random_column].isna() | (enriched_df[random_column] <= 0),
+            ratio_column,
+        ] = float("nan")
+    return enriched_df
+
+
+def _prediction_group_summary_table(
+    summary_df: pd.DataFrame,
+    group_columns: list[str],
+) -> pd.DataFrame:
+    if summary_df.empty:
+        return summary_df
+
+    preferred_columns = [
+        *group_columns,
+        "races",
+        "winner_accuracy",
+        "winner_x_random",
+        "forecast_accuracy",
+        "forecast_x_random",
+        "tricast_accuracy",
+        "tricast_x_random",
+        "mean_abs_rank_error",
+        "confidence",
+        "confidence_gap",
+    ]
+    available_columns = [column for column in preferred_columns if column in summary_df.columns]
+    return summary_df[available_columns]
+
+
+def _prediction_checks_table_df(performance_df: pd.DataFrame) -> pd.DataFrame:
+    if performance_df.empty:
+        return pd.DataFrame()
+    checks_df = performance_df[
+        [
+            "scheduled_start",
+            "track",
+            "race_name",
+            "distance_m",
+            "grade",
+            "known_finishers",
+            "winner_accuracy",
+            "forecast_accuracy",
+            "tricast_accuracy",
+            "mean_abs_rank_error",
+            "confidence",
+            "predicted_order",
+            "actual_order",
+        ]
+    ].copy()
+    checks_df = checks_df.rename(
+        columns={
+            "scheduled_start": "race_time",
+            "race_name": "race",
+            "distance_m": "distance",
+            "known_finishers": "finishers_known",
+            "winner_accuracy": "winner",
+            "forecast_accuracy": "forecast",
+            "tricast_accuracy": "tricast",
+            "mean_abs_rank_error": "rank_err",
+            "predicted_order": "predicted",
+            "actual_order": "actual",
+        }
+    )
+    checks_df[["confidence", "rank_err"]] = checks_df[["confidence", "rank_err"]].round(3)
+    for column in ["winner", "forecast", "tricast"]:
+        checks_df[column] = checks_df[column].map(_format_prediction_outcome)
+    return checks_df
+
+
+def _prediction_outcome_style(value: object) -> str:
+    normalized_value = str(value).strip().casefold()
+    if normalized_value == "yes":
+        return "background-color: #dcfce7; color: #166534; font-weight: 700;"
+    if normalized_value == "no":
+        return "background-color: #fee2e2; color: #991b1b; font-weight: 700;"
+    if normalized_value == "n/a":
+        return "background-color: #e2e8f0; color: #475569; font-style: italic;"
+    return ""
+
+
+def _prediction_check_row_style(row: pd.Series) -> list[str]:
+    highlight_style = ""
+    if row.get("tricast") == "yes":
+        highlight_style = "background-color: #dcfce733;"
+    elif row.get("forecast") == "yes":
+        highlight_style = "background-color: #dbeafe66;"
+    elif row.get("winner") == "yes":
+        highlight_style = "background-color: #fef3c766;"
+    elif row.get("winner") == "no" and row.get("forecast") == "no" and row.get("tricast") == "no":
+        highlight_style = "background-color: #fef2f266;"
+
+    row_styles = [""] * len(row)
+    if not highlight_style:
+        return row_styles
+
+    for index, column_name in enumerate(row.index):
+        if column_name in {"predicted", "actual"}:
+            row_styles[index] = highlight_style
+    return row_styles
+
+
+def _style_prediction_checks_table(checks_df: pd.DataFrame):
+    if checks_df.empty:
+        return checks_df
+    return (
+        checks_df.style.map(_prediction_outcome_style, subset=["winner", "forecast", "tricast"])
+        .apply(_prediction_check_row_style, axis=1)
+    )
+
+
+def _normalize_prediction_performance_date_range(value: object, *, default_start: date, default_end: date) -> tuple[date, date]:
+    if isinstance(value, tuple) and len(value) == 2 and all(isinstance(item, date) for item in value):
+        start_date, end_date = value
+    elif isinstance(value, list) and len(value) == 2 and all(isinstance(item, date) for item in value):
+        start_date, end_date = value
+    elif isinstance(value, date):
+        start_date = end_date = value
+    else:
+        start_date, end_date = default_start, default_end
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    return start_date, end_date
+
+
+def _aggregate_prediction_performance(
+    performance_df: pd.DataFrame,
+    group_columns: list[str],
+    *,
+    min_races: int = 3,
+) -> pd.DataFrame:
+    if performance_df.empty:
+        return pd.DataFrame()
+
+    grouped = (
+        performance_df.groupby(group_columns, dropna=False)
+        .agg(
+            races=("prediction_run_id", "count"),
+            forecast_scored=("forecast_accuracy", lambda values: int(values.notna().sum())),
+            tricast_scored=("tricast_accuracy", lambda values: int(values.notna().sum())),
+            winner_accuracy=("winner_accuracy", "mean"),
+            forecast_accuracy=("forecast_accuracy", "mean"),
+            tricast_accuracy=("tricast_accuracy", "mean"),
+            random_winner_accuracy=("random_winner_accuracy", "mean"),
+            random_forecast_accuracy=("random_forecast_accuracy", "mean"),
+            random_tricast_accuracy=("random_tricast_accuracy", "mean"),
+            mean_abs_rank_error=("mean_abs_rank_error", "mean"),
+            confidence=("confidence", "mean"),
+            confidence_gap=("confidence_gap", "mean"),
+        )
+        .reset_index()
+    )
+    filtered = grouped[grouped["races"] >= min_races]
+    if filtered.empty:
+        filtered = grouped
+    filtered = _add_random_edge_columns(filtered)
+    filtered = filtered.sort_values(
+        by=["winner_accuracy", "tricast_accuracy", "races"],
+        ascending=[False, False, False],
+    )
+    return filtered.round(
+        {
+            "winner_accuracy": 3,
+            "forecast_accuracy": 3,
+            "tricast_accuracy": 3,
+            "random_winner_accuracy": 3,
+            "random_forecast_accuracy": 3,
+            "random_tricast_accuracy": 3,
+            "winner_x_random": 3,
+            "forecast_x_random": 3,
+            "tricast_x_random": 3,
+            "mean_abs_rank_error": 3,
+            "confidence": 3,
+            "confidence_gap": 3,
+        }
+    )
+
+
+def _daily_winner_betting_returns(performance_df: pd.DataFrame) -> pd.DataFrame:
+    if performance_df.empty or "winner_bet_profit" not in performance_df.columns:
+        return pd.DataFrame()
+
+    betting_df = performance_df.copy()
+    betting_df["bet_date"] = pd.to_datetime(betting_df["scheduled_start_at"]).dt.date
+    betting_df["winner_hit"] = betting_df["winner_accuracy"].fillna(0.0)
+    betting_df["priced_profit"] = pd.to_numeric(betting_df["winner_bet_profit"], errors="coerce")
+    grouped = (
+        betting_df.groupby("bet_date", dropna=False)
+        .agg(
+            bets=("prediction_run_id", "count"),
+            priced_bets=("priced_profit", lambda values: int(values.notna().sum())),
+            winners=("winner_hit", "sum"),
+            winner_accuracy=("winner_accuracy", "mean"),
+            random_winner_accuracy=("random_winner_accuracy", "mean"),
+            profit=("priced_profit", "sum"),
+        )
+        .reset_index()
+        .sort_values("bet_date", ascending=False)
+    )
+    grouped["roi"] = grouped["profit"] / grouped["priced_bets"]
+    grouped.loc[grouped["priced_bets"] <= 0, ["profit", "roi"]] = float("nan")
+    grouped["result"] = grouped["profit"].map(
+        lambda value: "n/a" if pd.isna(value) else ("up" if value > 0 else ("down" if value < 0 else "flat"))
+    )
+    grouped["winners"] = grouped["winners"].round(0).astype(int)
+    return grouped
+
+
+def _daily_winner_betting_table(performance_df: pd.DataFrame) -> pd.DataFrame:
+    daily_df = _daily_winner_betting_returns(performance_df)
+    if daily_df.empty:
+        return daily_df
+    table_df = daily_df.copy()
+    table_df["bet_date"] = table_df["bet_date"].map(lambda value: value.isoformat() if isinstance(value, date) else str(value))
+    table_df["winner_accuracy"] = table_df["winner_accuracy"].round(3)
+    table_df["random_winner_accuracy"] = table_df["random_winner_accuracy"].round(3)
+    table_df["profit"] = table_df["profit"].map(_format_units)
+    table_df["roi"] = table_df["roi"].map(lambda value: f"{float(value) * 100:+.1f}%" if not pd.isna(value) else "n/a")
+    return table_df.rename(
+        columns={
+            "bet_date": "date",
+            "priced_bets": "priced",
+            "winner_accuracy": "winner_acc",
+            "random_winner_accuracy": "random_acc",
+        }
+    )
+
+
+def _render_prediction_performance(_settings: Settings) -> None:
+    st.subheader("Betting Performance")
+
+    try:
+        synced_count = _sync_prediction_run_scores(_settings)
+    except Exception as exc:
+        st.info(_friendly_db_error_message(exc))
+        return
+
+    score_rows_result, score_rows_error = _safe_session_query(
+        _settings,
+        lambda session: prediction_run_scores(session),
+        [],
+    )
+    score_rows = score_rows_result if isinstance(score_rows_result, list) else []
+    if score_rows_error:
+        st.info(score_rows_error)
+        return
+    if synced_count:
+        st.caption(f"Stored {synced_count} newly settled prediction score(s).")
+    if not score_rows:
+        st.info("No completed predicted races are available yet for outcome scoring.")
+        return
+
+    performance_df = _prediction_performance_dataframe(score_rows)
+    filtered_df = performance_df.copy()
+
+    overall = {
+        "races": int(len(filtered_df)),
+        "winner_accuracy": float(filtered_df["winner_accuracy"].mean()),
+        "forecast_accuracy": float(filtered_df["forecast_accuracy"].mean()),
+        "tricast_accuracy": float(filtered_df["tricast_accuracy"].mean()),
+        "random_winner_accuracy": float(filtered_df["random_winner_accuracy"].mean()),
+        "random_forecast_accuracy": float(filtered_df["random_forecast_accuracy"].mean()),
+        "random_tricast_accuracy": float(filtered_df["random_tricast_accuracy"].mean()),
+        "mean_abs_rank_error": float(filtered_df["mean_abs_rank_error"].mean()),
+        "winner_bet_profit": float(pd.to_numeric(filtered_df["winner_bet_profit"], errors="coerce").sum()),
+        "priced_bets": int(pd.to_numeric(filtered_df["winner_bet_profit"], errors="coerce").notna().sum()),
+    }
+
+    metric_cols = st.columns(5, gap="medium")
+    metric_cols[0].metric("Settled races", f"{overall['races']:,}")
+    metric_cols[1].metric(
+        "Winner",
+        _format_metric_or_na(overall["winner_accuracy"]),
+        delta=_metric_delta_vs_random(overall["winner_accuracy"], overall["random_winner_accuracy"]),
+        delta_color="normal",
+    )
+    metric_cols[2].metric(
+        "Forecast",
+        _format_metric_or_na(overall["forecast_accuracy"]),
+        delta=_metric_delta_vs_random(overall["forecast_accuracy"], overall["random_forecast_accuracy"]),
+        delta_color="normal",
+    )
+    metric_cols[3].metric(
+        "Tricast",
+        _format_metric_or_na(overall["tricast_accuracy"]),
+        delta=_metric_delta_vs_random(overall["tricast_accuracy"], overall["random_tricast_accuracy"]),
+        delta_color="normal",
+    )
+    metric_cols[4].metric("Win P/L", _format_units(overall["winner_bet_profit"]))
+    st.caption(
+        "Daily P/L uses 1u winner stakes at stored SP. Forecast and tricast are tracked as hit rates because exact dividends are not in the current feed."
+    )
+
+    daily_table_df = _daily_winner_betting_table(filtered_df)
+    if not daily_table_df.empty:
+        st.markdown("**Daily 1u Winner Bets**")
+        st.dataframe(
+            daily_table_df[["date", "bets", "priced", "winners", "winner_acc", "random_acc", "profit", "roi", "result"]],
+            width="stretch",
+            hide_index=True,
+        )
+
+    recent_scored_df = _prediction_checks_table_df(filtered_df)
+    st.markdown("**Recent Settled Prediction Checks**")
+    st.dataframe(
+        _style_prediction_checks_table(recent_scored_df.head(30)),
+        width="stretch",
+        hide_index=True,
+    )
+
+
 def _upcoming_prediction_track_options(_settings: Settings) -> list[str]:
     cutoff = datetime.now(timezone.utc)
     with session_scope(_settings) as session:
@@ -837,6 +1749,124 @@ def _upcoming_prediction_track_options(_settings: Settings) -> list[str]:
             .order_by(Track.name.asc())
         )
         return [track_name for track_name in session.scalars(statement) if track_name]
+
+
+def _local_day_utc_bounds(local_day: date, timezone_name: str = "Europe/London") -> tuple[datetime, datetime]:
+    local_timezone = ZoneInfo(timezone_name)
+    start_local = datetime.combine(local_day, time.min, tzinfo=local_timezone)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _race_keys_for_local_day(_settings: Settings, local_day: date) -> list[str]:
+    start_utc, end_utc = _local_day_utc_bounds(local_day)
+    with session_scope(_settings) as session:
+        statement = (
+            select(Race.race_key)
+            .where(
+                Race.is_completed.is_(False),
+                Race.scheduled_start >= start_utc,
+                Race.scheduled_start < end_utc,
+                Race.status.not_in(["canceled", "abandoned"]),
+            )
+            .order_by(Race.scheduled_start.asc(), Race.race_key.asc())
+        )
+        return [race_key for race_key in session.scalars(statement) if race_key]
+
+
+def _latest_upcoming_prediction_runs(_settings: Settings) -> tuple[list[PredictionRun], str | None]:
+    cutoff = datetime.now(timezone.utc)
+
+    def load(session: Session) -> list[PredictionRun]:
+        statement = (
+            select(PredictionRun)
+            .join(PredictionRun.race)
+            .join(Race.track)
+            .options(selectinload(PredictionRun.race).selectinload(Race.track))
+            .where(
+                Race.is_completed.is_(False),
+                Race.scheduled_start >= cutoff,
+                Race.status.not_in(["canceled", "abandoned"]),
+            )
+            .order_by(PredictionRun.created_at.desc(), PredictionRun.id.desc())
+        )
+        runs = list(session.scalars(statement).unique())
+        latest_by_race_id: dict[int, PredictionRun] = {}
+        for run in runs:
+            latest_by_race_id.setdefault(int(run.race_id), run)
+        return sorted(
+            latest_by_race_id.values(),
+            key=lambda run: float(run.confidence or 0.0),
+            reverse=True,
+        )
+
+    result, error = _safe_session_query(_settings, load, [])
+    runs = result if isinstance(result, list) else []
+    return runs, error
+
+
+def _recommended_bet_type(confidence: object, confidence_gap: object) -> str:
+    try:
+        confidence_value = float(confidence or 0.0)
+        gap_value = float(confidence_gap or 0.0)
+    except (TypeError, ValueError):
+        return "Winner"
+    if confidence_value >= 0.08 and gap_value >= 0.025:
+        return "Tricast"
+    if confidence_value >= 0.04 and gap_value >= 0.012:
+        return "Forecast"
+    return "Winner"
+
+
+def _prediction_order_selection(rows: list[object], count: int) -> str:
+    formatted_rows = [
+        _format_prediction_runner(row)
+        for row in rows[:count]
+        if isinstance(row, dict)
+    ]
+    return " > ".join(row for row in formatted_rows if row) or "n/a"
+
+
+def _betting_recommendation_row(run: PredictionRun) -> dict[str, object]:
+    race = run.race
+    order_rows = [row for row in run.predicted_order_json if isinstance(row, dict)]
+    confidence_gap = (run.metadata_json or {}).get("confidence_gap")
+    bet_type = _recommended_bet_type(run.confidence, confidence_gap)
+    selection_count = {"Winner": 1, "Forecast": 2, "Tricast": 3}.get(bet_type, 1)
+    top_runner = order_rows[0] if order_rows else {}
+    top_win_probability = top_runner.get("win_probability") if isinstance(top_runner, dict) else None
+    race_label = "n/a"
+    if race is not None:
+        race_label = race.race_name or (f"Race {race.race_number}" if race.race_number else race.race_key)
+    return {
+        "start": _format_display_datetime(race.scheduled_start if race else None),
+        "track": race.track.name if race and race.track else "Unknown",
+        "race": race_label,
+        "distance": f"{race.distance_m}m" if race and race.distance_m else "n/a",
+        "grade": (race.grade or "n/a") if race else "n/a",
+        "bet": bet_type,
+        "selection": _prediction_order_selection(order_rows, selection_count),
+        "winner": _prediction_order_selection(order_rows, 1),
+        "forecast": _prediction_order_selection(order_rows, 2),
+        "tricast": _prediction_order_selection(order_rows, 3),
+        "confidence": float(run.confidence) if run.confidence is not None else None,
+        "gap": float(confidence_gap) if confidence_gap is not None else None,
+        "winner_prob": float(top_win_probability) if top_win_probability is not None else None,
+    }
+
+
+def _upcoming_betting_recommendations_df(_settings: Settings) -> tuple[pd.DataFrame, str | None]:
+    runs, error = _latest_upcoming_prediction_runs(_settings)
+    if error:
+        return pd.DataFrame(), error
+    if not runs:
+        return pd.DataFrame(), None
+    rows = [_betting_recommendation_row(run) for run in runs]
+    recommendations_df = pd.DataFrame(rows)
+    for column in ["confidence", "gap", "winner_prob"]:
+        if column in recommendations_df.columns:
+            recommendations_df[column] = recommendations_df[column].round(3)
+    return recommendations_df, None
 
 
 last_run = None
@@ -888,6 +1918,7 @@ interrupted_run_message: str | None = None
 interrupted_run_log_hint: str | None = None
 interrupted_run_log_path: Path | None = None
 interrupted_run_last_log_event: dict[str, object] | None = None
+interrupted_run_reason: str | None = None
 if current_active_run and current_active_run.status == "running" and not current_active_run.finished_at:
     started_text = _format_display_datetime(current_active_run.started_at) or "an unknown time"
     interrupted_run_message = (
@@ -925,6 +1956,7 @@ elif last_run and last_run.status == "failed":
     interrupted_run_message = (
         f"The most recent training run from {started_text} is marked failed."
     )
+    interrupted_run_reason = _training_run_reason(last_run)
 elif last_run and last_run.status == "interrupted":
     started_text = _format_display_datetime(last_run.started_at) or "an unknown time"
     finished_text = _format_display_datetime(last_run.finished_at) or "an unknown time"
@@ -932,6 +1964,15 @@ elif last_run and last_run.status == "interrupted":
         f"The most recent training run started at {started_text} and was interrupted around {finished_text} "
         "before the final artifact/report was written."
     )
+    interrupted_run_reason = _training_run_reason(last_run)
+elif last_run and last_run.status == "completed" and _training_run_reason(last_run):
+    started_text = _format_display_datetime(last_run.started_at) or "an unknown time"
+    finished_text = _format_display_datetime(last_run.finished_at) or "an unknown time"
+    interrupted_run_message = (
+        f"The most recent training run started at {started_text} and stopped around {finished_text} "
+        "before completing all configured epochs."
+    )
+    interrupted_run_reason = _training_run_reason(last_run)
 
 draft_config = _load_training_config_draft(settings)
 initial_training_config = {**last_config, **draft_config}
@@ -1060,6 +2101,7 @@ def _render_training_log_progress(title: str, log_path: Path | None) -> None:
     batch_rows: list[dict[str, object]] = []
     epoch_rows: list[dict[str, object]] = []
     current_epoch_marker: int | None = None
+    latest_epoch_payload: dict[str, object] | None = None
     for event_index, payload in enumerate(events, start=1):
         event_name = str(payload.get("event", ""))
         if event_name == "epoch_started":
@@ -1082,6 +2124,7 @@ def _render_training_log_progress(title: str, log_path: Path | None) -> None:
         elif event_name == "epoch_completed":
             current_epoch_marker = _maybe_int(payload.get("epoch")) or current_epoch_marker
             total_epochs = total_epochs or _maybe_int(payload.get("total_epochs"))
+            latest_epoch_payload = payload
             epoch_rows.append(
                 {
                     "epoch": _maybe_int(payload.get("epoch")),
@@ -1119,51 +2162,24 @@ def _render_training_log_progress(title: str, log_path: Path | None) -> None:
             progress_fraction = current_epoch / total_epochs
         progress_fraction = min(max(progress_fraction, 0.0), 1.0)
 
-    summary_cols = st.columns(4, gap="medium")
-    summary_cols[0].metric("Epoch", f"{current_epoch or '?'} / {total_epochs or '?'}")
-    summary_cols[1].metric("Batch", f"{current_batch or '-'} / {total_batches or '-'}")
-    summary_cols[2].metric("Elapsed", _format_duration(elapsed_seconds) if elapsed_seconds is not None else "n/a")
-    summary_cols[3].metric("Last update", _format_display_datetime(last_event.get("timestamp")) or "unknown")
-
-    train_race_count = _maybe_int(start_event.get("train_race_count")) if isinstance(start_event, dict) else None
-    validation_race_count = _maybe_int(start_event.get("validation_race_count")) if isinstance(start_event, dict) else None
-    st.caption(
-        " | ".join(
-            item
-            for item in [
-                f"Log: {log_path}",
-                f"Train races: {train_race_count}" if train_race_count is not None else None,
-                f"Validation races: {validation_race_count}" if validation_race_count is not None else None,
-            ]
-            if item
-        )
-    )
-
     if progress_fraction is not None:
-        st.progress(progress_fraction)
+        st.progress(
+            progress_fraction,
+            text=f"Epoch {current_epoch or '?'} / {total_epochs or '?'}"
+            f"{f' | batch {current_batch} / {total_batches}' if current_batch and total_batches else ''}",
+        )
+    else:
+        st.progress(0.0, text="Waiting for the first training heartbeat")
 
     if not batch_df.empty:
         batch_plot_df = batch_df.copy()
         batch_plot_df["plot_step"] = batch_plot_df["samples_seen_total"].fillna(batch_plot_df["heartbeat_index"])
-        st.caption("Batch loss from the active JSONL log")
         st.line_chart(
             batch_plot_df.set_index("plot_step")[["rolling_batch_loss", "batch_loss"]],
             width="stretch",
         )
-
-    if not epoch_df.empty:
-        st.caption("Epoch summary from the active JSONL log")
-        st.line_chart(
-            epoch_df.set_index("epoch")[["train_loss", "validation_loss", "best_validation_loss"]],
-            width="stretch",
-        )
-        st.line_chart(
-            epoch_df.set_index("epoch")[["validation_winner_accuracy"]],
-            width="stretch",
-        )
-
-    with st.expander("Latest log event"):
-        st.code(json.dumps(last_event, indent=2, default=str), language="json")
+    else:
+        st.caption("No batch loss has been logged yet.")
 
 
 def _load_torch_payload(path: Path) -> dict[str, object] | None:
@@ -1432,7 +2448,6 @@ def _run_inline_training(
     config: TrainingConfig,
     current_config: dict[str, object],
     progress_slot,
-    weights_slot,
 ) -> tuple[bool, str, dict[str, object] | None]:
     last_event: dict[str, object] | None = None
     observed_epochs = 0
@@ -1452,23 +2467,6 @@ def _run_inline_training(
             else:
                 with st.expander("Latest training event"):
                     st.code(json.dumps(event, indent=2, default=str), language="json")
-
-        snapshot_path_value = event.get("weight_snapshot_path")
-        if isinstance(snapshot_path_value, str) and snapshot_path_value:
-            snapshot_path = Path(snapshot_path_value)
-            payload = _load_torch_payload(snapshot_path)
-            if payload is not None:
-                with weights_slot.container():
-                    _render_ann_weights_panel(
-                        _settings,
-                        None,
-                        None,
-                        None,
-                        payload_override=payload,
-                        source_path_override=snapshot_path,
-                        source_label_override="live in-process snapshot",
-                        compact=True,
-                    )
 
     try:
         summary = train_model(_settings, config, progress=progress_callback)
@@ -1497,6 +2495,152 @@ def _run_inline_training(
     )
 
 
+def _auto_mode_local_dates() -> tuple[date, date]:
+    today = datetime.now(AUTO_MODE_TIMEZONE).date()
+    return today - timedelta(days=1), today + timedelta(days=1)
+
+
+def _auto_mode_date_value(state: dict[str, object], key: str) -> date | None:
+    value = state.get(key)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _run_auto_mode_cycle(
+    _settings: Settings,
+    *,
+    max_epochs: int,
+    historic_lookback_days: int,
+    gbgb_delay_seconds: float,
+    racecard_delay_seconds: float,
+    resume_artifact: str | None,
+    progress_slot,
+) -> dict[str, object]:
+    state = _load_auto_mode_state(_settings)
+    last_lock = state.get("lock_started_at")
+    if isinstance(last_lock, str):
+        try:
+            lock_time = datetime.fromisoformat(last_lock.replace("Z", "+00:00"))
+        except ValueError:
+            lock_time = None
+        if lock_time and (datetime.now(timezone.utc) - lock_time).total_seconds() < 12 * 60 * 60:
+            return {"status": "locked", "message": "Auto mode is already running in another dashboard session."}
+
+    state["lock_started_at"] = datetime.now(timezone.utc).isoformat()
+    _save_auto_mode_state(_settings, state)
+    completed_results_day, tomorrow = _auto_mode_local_dates()
+    steps: list[dict[str, object]] = []
+
+    def record(message: str, *, level: str = "info", **extra: object) -> None:
+        _append_auto_mode_event(state, message, level=level)
+        step = {"message": message, "level": level, **extra}
+        steps.append(step)
+        _save_auto_mode_state(_settings, state)
+
+    try:
+        imported_through = _auto_mode_date_value(state, "historic_imported_through")
+        if imported_through is None or imported_through < completed_results_day:
+            start_day = completed_results_day - timedelta(days=max(int(historic_lookback_days), 1) - 1)
+            if imported_through is not None:
+                start_day = max(start_day, imported_through + timedelta(days=1))
+            record(f"Importing GBGB results from {start_day.isoformat()} to {completed_results_day.isoformat()}.")
+            historic_summary = ingest_gbgb_range(
+                _settings,
+                start_date=start_day,
+                end_date=completed_results_day,
+                delay_seconds=float(gbgb_delay_seconds),
+            )
+            state["historic_imported_through"] = completed_results_day.isoformat()
+            record(
+                f"Imported {historic_summary['races_touched']} historic race(s).",
+                summary=historic_summary,
+            )
+            try:
+                synced_count = _sync_prediction_run_scores(_settings)
+            except Exception as exc:
+                record(_friendly_db_error_message(exc), level="warning")
+            else:
+                record(f"Scored {synced_count} newly settled prediction(s).")
+        else:
+            record(f"Historic results are current through {imported_through.isoformat()}.")
+
+        trained_through = _auto_mode_date_value(state, "trained_for_results_through")
+        active_run_result, active_run_error = _safe_session_query(
+            _settings,
+            lambda session: active_training_run(session),
+            None,
+        )
+        active_run = active_run_result if isinstance(active_run_result, TrainingRun) else None
+        if active_run_error:
+            record(active_run_error, level="warning")
+        elif active_run:
+            record(f"Training is already active: {active_run.run_key}.", level="warning")
+        elif trained_through is None or trained_through < completed_results_day:
+            training_config_dict = _training_config_from_state(max_epochs=max_epochs)
+            resume_path = resume_artifact if resume_artifact else None
+            training_config = _build_training_config(_settings, training_config_dict, resume_artifact=resume_path)
+            record(f"Training ANN for up to {training_config.epochs} epoch(s).")
+            launch_success, launch_message, _training_summary = _run_inline_training(
+                _settings,
+                training_config,
+                training_config_dict,
+                progress_slot,
+            )
+            if launch_success:
+                state["trained_for_results_through"] = completed_results_day.isoformat()
+                record(launch_message, level="success")
+            else:
+                record(launch_message, level="error")
+                return {"status": "failed", "steps": steps}
+        else:
+            record(f"Training is current for results through {trained_through.isoformat()}.")
+
+        racecards_for = _auto_mode_date_value(state, "tomorrow_racecards_imported_for")
+        if racecards_for != tomorrow:
+            record(f"Importing racecards for {tomorrow.isoformat()}.")
+            racecard_summary = ingest_rapidapi_racecards(
+                _settings,
+                race_date=tomorrow,
+                refresh_existing=False,
+                include_finished=False,
+                include_canceled=False,
+                delay_seconds=float(racecard_delay_seconds),
+            )
+            state["tomorrow_racecards_imported_for"] = tomorrow.isoformat()
+            record(
+                f"Imported {racecard_summary['races_touched']} racecard race(s) for tomorrow.",
+                summary=racecard_summary,
+            )
+        else:
+            record(f"Tomorrow racecards are already imported for {tomorrow.isoformat()}.")
+
+        predicted_for = _auto_mode_date_value(state, "predicted_for")
+        if predicted_for != tomorrow:
+            race_keys = _race_keys_for_local_day(_settings, tomorrow)
+            if not race_keys:
+                record(f"No tomorrow races are available to predict for {tomorrow.isoformat()}.", level="warning")
+            else:
+                record(f"Generating predictions for {len(race_keys)} tomorrow race(s).")
+                predictions = predict_upcoming_races(_settings, race_keys=race_keys)
+                state["predicted_for"] = tomorrow.isoformat()
+                record(f"Generated {len(predictions)} tomorrow prediction(s).", level="success")
+        else:
+            record(f"Tomorrow predictions are already generated for {tomorrow.isoformat()}.")
+
+        return {"status": "completed", "steps": steps}
+    except Exception as exc:
+        record(_friendly_db_error_message(exc), level="error")
+        return {"status": "failed", "steps": steps}
+    finally:
+        state.pop("lock_started_at", None)
+        state["last_checked_at"] = datetime.now(timezone.utc).isoformat()
+        _save_auto_mode_state(_settings, state)
+
+
 def _render_recent_training_runs(_settings: Settings) -> None:
     st.subheader("Recent Training Runs")
     training_runs_result, training_runs_error = _safe_session_query(
@@ -1518,6 +2662,7 @@ def _render_recent_training_runs(_settings: Settings) -> None:
             {
                 "run_key": run.run_key,
                 "status": run.status,
+                "stop_reason": _training_run_reason(run) or "",
                 "started_at": _format_display_datetime(run.started_at),
                 "finished_at": _format_display_datetime(run.finished_at),
                 "winner_accuracy": (run.metrics_json or {}).get("winner_accuracy"),
@@ -1628,7 +2773,7 @@ def _render_recent_prediction_runs(_settings: Settings) -> None:
     st.dataframe(prediction_df, width="stretch", hide_index=True)
 
 st.title("Greyhounds ANN Monitor")
-st.caption("Train a MATLAB-style permutation scorer, inspect recent runs, and score upcoming races.")
+st.caption("Automate race imports, train the ANN, and rank betting selections by model confidence.")
 
 launch_feedback = st.session_state.pop(TRAINING_LAUNCH_FEEDBACK_KEY, None)
 if isinstance(launch_feedback, dict):
@@ -1666,12 +2811,122 @@ else:
         if track_name in prediction_track_options
     ]
 
-import_tab, search_tab, training_tab, weights_tab, prediction_tab = st.tabs(
+auto_tab, import_tab, training_tab, prediction_tab, search_tab = st.tabs(
     list(MAIN_PAGE_TABS),
     default=_main_page_tab_default(),
     key=MAIN_PAGE_TAB_STATE_KEY,
     on_change=_sync_main_page_tab_query_param,
 )
+
+with auto_tab:
+    st.subheader("Auto Mode")
+
+    auto_controls = st.columns([0.8, 0.8, 0.8, 0.8], gap="medium")
+    auto_enabled = auto_controls[0].toggle(
+        "Auto mode",
+        value=bool(st.session_state.get("auto_mode_enabled", False)),
+        key="auto_mode_enabled",
+        disabled=bool(dashboard_db_error),
+    )
+    auto_max_epochs = int(
+        auto_controls[1].number_input(
+            "Max epochs",
+            min_value=1,
+            max_value=50,
+            value=50,
+            step=1,
+            key="auto_mode_max_epochs",
+        )
+    )
+    auto_lookback_days = int(
+        auto_controls[2].number_input(
+            "Result lookback",
+            min_value=1,
+            max_value=14,
+            value=3,
+            step=1,
+            key="auto_mode_result_lookback_days",
+        )
+    )
+    auto_delay_seconds = float(
+        auto_controls[3].number_input(
+            "API delay",
+            min_value=0.0,
+            max_value=10.0,
+            value=0.5,
+            step=0.1,
+            format="%.1f",
+            key="auto_mode_api_delay",
+        )
+    )
+
+    auto_progress_slot = st.empty()
+    auto_status_slot = st.empty()
+
+    def render_auto_state() -> None:
+        auto_state = _load_auto_mode_state(settings)
+        completed_results_day, tomorrow_race_day = _auto_mode_local_dates()
+        status_cols = st.columns(4, gap="medium")
+        status_cols[0].metric("Results through", str(auto_state.get("historic_imported_through") or "pending"))
+        status_cols[1].metric("Trained through", str(auto_state.get("trained_for_results_through") or "pending"))
+        status_cols[2].metric("Tomorrow cards", str(auto_state.get("tomorrow_racecards_imported_for") or "pending"))
+        status_cols[3].metric("Predictions", str(auto_state.get("predicted_for") or "pending"))
+        st.caption(
+            f"Next complete results day: {completed_results_day.isoformat()} | "
+            f"Tomorrow racecard day: {tomorrow_race_day.isoformat()}"
+        )
+        events = auto_state.get("events")
+        if isinstance(events, list) and events:
+            event_df = pd.DataFrame(events[-12:])
+            if not event_df.empty:
+                event_df["timestamp"] = pd.to_datetime(event_df["timestamp"]).dt.strftime("%d %b %H:%M")
+                st.dataframe(event_df[["timestamp", "level", "message"]], width="stretch", hide_index=True)
+
+    run_auto_now = st.button(
+        "Run auto cycle now",
+        type="primary",
+        width="stretch",
+        disabled=bool(dashboard_db_error),
+    )
+    if run_auto_now:
+        with auto_status_slot.container():
+            result = _run_auto_mode_cycle(
+                settings,
+                max_epochs=auto_max_epochs,
+                historic_lookback_days=auto_lookback_days,
+                gbgb_delay_seconds=auto_delay_seconds,
+                racecard_delay_seconds=auto_delay_seconds,
+                resume_artifact=resume_artifact_path if resume_artifact_path else None,
+                progress_slot=auto_progress_slot,
+            )
+            if result.get("status") == "completed":
+                st.success("Auto cycle completed.")
+            elif result.get("status") == "locked":
+                st.warning(str(result.get("message")))
+            else:
+                st.error("Auto cycle stopped before completing.")
+
+    if hasattr(st, "fragment"):
+        @st.fragment(run_every="60s")
+        def auto_mode_tick() -> None:
+            if st.session_state.get("auto_mode_enabled") and not dashboard_db_error:
+                fragment_progress_slot = st.empty()
+                result = _run_auto_mode_cycle(
+                    settings,
+                    max_epochs=int(st.session_state.get("auto_mode_max_epochs", 50)),
+                    historic_lookback_days=int(st.session_state.get("auto_mode_result_lookback_days", 3)),
+                    gbgb_delay_seconds=float(st.session_state.get("auto_mode_api_delay", 0.5)),
+                    racecard_delay_seconds=float(st.session_state.get("auto_mode_api_delay", 0.5)),
+                    resume_artifact=resume_artifact_path if resume_artifact_path else None,
+                    progress_slot=fragment_progress_slot,
+                )
+                if result.get("status") == "failed":
+                    st.error("Auto mode hit an error. Check the event log below.")
+            render_auto_state()
+
+        auto_mode_tick()
+    else:
+        render_auto_state()
 
 with import_tab:
     st.subheader("Racecard Import")
@@ -1916,6 +3171,52 @@ with import_tab:
             )
             st.json(historic_summary)
 
+            try:
+                synced_prediction_count = _sync_prediction_run_scores(settings)
+            except Exception as exc:
+                st.info(_friendly_db_error_message(exc))
+            else:
+                if synced_prediction_count:
+                    st.caption(
+                        f"Checked {synced_prediction_count} newly settled prediction(s) while importing results."
+                    )
+                import_score_rows_result, import_score_rows_error = _safe_session_query(
+                    settings,
+                    lambda session: prediction_run_scores(session),
+                    [],
+                )
+                import_score_rows = import_score_rows_result if isinstance(import_score_rows_result, list) else []
+                if import_score_rows_error:
+                    st.info(import_score_rows_error)
+                else:
+                    import_performance_df = _prediction_performance_dataframe(import_score_rows)
+                    import_filtered_df = pd.DataFrame()
+                    if not import_performance_df.empty:
+                        import_filtered_df = import_performance_df[
+                            (import_performance_df["scheduled_date"] >= historic_start_date)
+                            & (import_performance_df["scheduled_date"] <= historic_end_date)
+                        ].copy()
+                        if normalized_historic_track:
+                            import_filtered_df = import_filtered_df[
+                                import_filtered_df["track"].fillna("").astype(str).str.casefold()
+                                == normalized_historic_track.casefold()
+                            ]
+                    st.markdown("**Prediction Checks For Imported Results**")
+                    if import_filtered_df.empty:
+                        st.caption("No previously predicted races were settled in this import window.")
+                    else:
+                        st.caption(
+                            "Winner = 1st place, Forecast = exact 1-2, Tricast = exact 1-2-3. `n/a` means the official placings are still incomplete."
+                        )
+                        import_checks_df = _prediction_checks_table_df(
+                            import_filtered_df.sort_values("scheduled_start_at", ascending=False)
+                        ).head(40)
+                        st.dataframe(
+                            _style_prediction_checks_table(import_checks_df),
+                            width="stretch",
+                            hide_index=True,
+                        )
+
 with search_tab:
     st.subheader("Search")
     st.caption("Find a dog and inspect recent form, or look up the runners and results for a race by track and date.")
@@ -2125,33 +3426,9 @@ with search_tab:
                     else:
                         st.info("No runners are stored for this race yet.")
 
-with weights_tab:
-    st.subheader("ANN Weights")
-    st.caption("Inspect the current ANN tensors from the live training snapshot or the latest saved model artifact.")
-    live_weight_controls = st.columns([1.0, 1.0], gap="medium")
-    live_weight_controls[0].checkbox(
-        "Update flattened values live",
-        value=False,
-        key="ann_weights_live_values",
-    )
-    live_weight_controls[1].number_input(
-        "Live value row cap",
-        min_value=100,
-        max_value=1_000_000,
-        value=10_000,
-        step=1000,
-        key="ann_weights_live_max_rows",
-    )
-    if st.button("Refresh weights view", width="stretch"):
-        st.rerun()
-    weights_live_slot = st.empty()
-    with weights_live_slot.container():
-        _render_ann_weights_panel(settings, current_active_run, last_completed_run, last_run)
-
-
 with training_tab:
     st.subheader("Training")
-    st.caption("Launch training, rebuild live progress from the JSONL log after refreshes, and inspect recent runs.")
+    st.caption("ANN config, live progress, and batch loss.")
 
     config_row_1 = st.columns(3, gap="medium")
     epochs = config_row_1[0].number_input(
@@ -2340,29 +3617,16 @@ with training_tab:
 
     inline_progress_slot = st.empty()
     if train_now:
-        training_config = TrainingConfig(
-            epochs=int(epochs),
-            batch_size=int(batch_size),
-            learning_rate=float(learning_rate),
-            hidden_size_1=int(hidden_size_1),
-            hidden_size_2=int(hidden_size_2),
-            dropout=float(dropout),
-            validation_fraction=float(validation_fraction),
-            weight_decay=float(weight_decay),
-            max_runners=settings.max_runners,
-            min_completed_races=int(min_completed_races),
-            model_type="permutation",
-            resume_from_artifact=resume_artifact_path if (resume_previous and resume_artifact_path) else None,
-            permutations_per_race=int(permutations_per_race),
-            permutation_runner_limit=int(permutation_runner_limit),
-            early_stopping_patience=int(early_stopping_patience),
+        training_config = _build_training_config(
+            settings,
+            current_training_config,
+            resume_artifact=resume_artifact_path if (resume_previous and resume_artifact_path) else None,
         )
         launch_success, launch_message, _training_summary = _run_inline_training(
             settings,
             training_config,
             current_training_config,
             inline_progress_slot,
-            weights_live_slot,
         )
         st.session_state[TRAINING_LAUNCH_FEEDBACK_KEY] = {
             "level": "success" if launch_success else "error",
@@ -2373,6 +3637,8 @@ with training_tab:
 
     if interrupted_run_message:
         st.warning(interrupted_run_message)
+        if interrupted_run_reason:
+            st.info(f"Stop reason: {interrupted_run_reason}")
         if interrupted_run_log_hint:
             st.caption(interrupted_run_log_hint)
 
@@ -2449,11 +3715,9 @@ with training_tab:
         if latest_log_path and latest_log_path.exists():
             _render_training_log_progress("Latest Logged Training Progress", latest_log_path)
 
-    _render_recent_training_runs(settings)
-
 with prediction_tab:
-    st.subheader("Prediction")
-    st.caption("Score upcoming races with the latest saved model and inspect stored prediction runs.")
+    st.subheader("Bets")
+    st.caption("Upcoming ANN selections ranked by confidence, plus settled performance against random selection.")
 
     selected_prediction_tracks = st.multiselect(
         "Tracks to predict",
@@ -2469,7 +3733,7 @@ with prediction_tab:
         st.caption("No future unresolved races are currently available to predict.")
 
     predict_now = st.button(
-        "Predict upcoming races",
+        "Generate predictions",
         type="primary",
         width="stretch",
         disabled=bool(dashboard_db_error) or not bool(prediction_track_options),
@@ -2489,26 +3753,34 @@ with prediction_tab:
                 st.success(
                     f"Generated {len(predictions)} prediction run(s) across {len(selected_prediction_tracks)} track(s)."
                 )
-                prediction_results_df = pd.DataFrame(
-                    [
-                        {
-                            "track": prediction.get("track_name"),
-                            "time": _format_display_datetime(prediction.get("scheduled_start")),
-                            "confidence": prediction.get("confidence"),
-                            "gap": prediction.get("confidence_gap"),
-                            "1st": _predicted_dog_name(prediction, 0),
-                            "2nd": _predicted_dog_name(prediction, 1),
-                            "3rd": _predicted_dog_name(prediction, 2),
-                        }
-                        for prediction in predictions
-                    ]
-                )
-                if not prediction_results_df.empty:
-                    st.dataframe(prediction_results_df, width="stretch", hide_index=True)
-                with st.expander("Raw prediction JSON"):
-                    st.json(predictions)
-
-    _render_recent_prediction_runs(settings)
+    recommendation_df, recommendation_error = _upcoming_betting_recommendations_df(settings)
+    st.markdown("**Upcoming Bet Queue**")
+    if recommendation_error:
+        st.info(recommendation_error)
+    elif recommendation_df.empty:
+        st.info("No upcoming predictions are stored yet.")
+    else:
+        st.dataframe(
+            recommendation_df[
+                [
+                    "start",
+                    "track",
+                    "race",
+                    "distance",
+                    "grade",
+                    "bet",
+                    "selection",
+                    "confidence",
+                    "gap",
+                    "winner_prob",
+                    "forecast",
+                    "tricast",
+                ]
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+    _render_prediction_performance(settings)
 
 st.subheader("Environment")
 st.code(

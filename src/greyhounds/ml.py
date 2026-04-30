@@ -213,6 +213,30 @@ class TrainingStopRequested(Exception):
         self.recovery_artifact_path = recovery_artifact_path
 
 
+def _format_stop_request_reason(
+    stop_request: dict[str, Any] | None,
+    *,
+    stage: str,
+    epoch: int,
+    recovery_artifact_path: Path,
+) -> str:
+    if not isinstance(stop_request, dict):
+        return (
+            f"Training stopped during {stage} at epoch {epoch}. "
+            f"Saved recovery checkpoint to {recovery_artifact_path}."
+        )
+
+    requested_by = str(stop_request.get("requested_by") or "unknown")
+    requested_at = stop_request.get("requested_at")
+    requested_at_text = str(requested_at) if requested_at else "an unknown time"
+    requested_reason = str(stop_request.get("reason") or "No reason was provided.")
+    return (
+        f"Training stopped during {stage} at epoch {epoch} after a request from {requested_by} "
+        f"at {requested_at_text}. Reason: {requested_reason} "
+        f"Saved recovery checkpoint to {recovery_artifact_path}."
+    )
+
+
 def _logs_dir(settings: Settings) -> Path:
     logs_path = getattr(settings, "logs_dir", settings.artifacts_dir / "logs")
     resolved = Path(logs_path)
@@ -1746,6 +1770,7 @@ def train_model(
         run_key=run_key,
         training_run_id=training_run_id,
     )
+    completion_note: str | None = None
 
     def mark_run_interrupted() -> None:
         elapsed_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
@@ -1857,6 +1882,8 @@ def train_model(
 
         resume_artifact: dict[str, Any] | None = None
         resumed_checkpoint_epoch = 0
+        saved_last_epoch_summary: dict[str, Any] | None = None
+        saved_best_epoch_summary: dict[str, Any] | None = None
         if config.resume_from_artifact:
             resume_artifact = _load_artifact(config.resume_from_artifact)
             if resume_artifact.get("model_type") != "permutation":
@@ -1866,7 +1893,30 @@ def train_model(
                     "This artifact uses the legacy permutation-regression layout. "
                     "Start a fresh listwise training run with resume disabled."
                 )
-            resumed_checkpoint_epoch = int(resume_artifact.get("checkpoint_epoch") or 0)
+            saved_last_epoch_summary = (
+                resume_artifact.get("last_epoch")
+                if isinstance(resume_artifact.get("last_epoch"), dict)
+                else None
+            )
+            saved_best_epoch_summary = (
+                resume_artifact.get("best_epoch")
+                if isinstance(resume_artifact.get("best_epoch"), dict)
+                else None
+            )
+            resumed_checkpoint_epoch = int(
+                (
+                    saved_best_epoch_summary.get("epoch")
+                    if saved_best_epoch_summary is not None
+                    and (
+                        resume_artifact.get("best_state_dict") is not None
+                        or resume_artifact.get("artifact_state") == "best_validation"
+                    )
+                    else None
+                )
+                or resume_artifact.get("checkpoint_epoch")
+                or (saved_last_epoch_summary.get("epoch") if saved_last_epoch_summary is not None else 0)
+                or 0
+            )
             if resumed_checkpoint_epoch >= config.epochs:
                 raise ValueError(
                     f"Resume checkpoint is already at epoch {resumed_checkpoint_epoch}, which meets or exceeds the requested total of {config.epochs} epochs."
@@ -1879,35 +1929,69 @@ def train_model(
             hidden_size_2=config.hidden_size_2,
             dropout=config.dropout,
         ).to(device)
+        resume_uses_best_state = False
         if resume_artifact is not None:
-            resume_state_dict = resume_artifact.get("best_state_dict") or resume_artifact["state_dict"]
+            if resume_artifact.get("best_state_dict") is not None:
+                resume_state_dict = resume_artifact.get("best_state_dict")
+                resume_uses_best_state = True
+            elif resume_artifact.get("artifact_state") == "best_validation" and resume_artifact.get("state_dict") is not None:
+                resume_state_dict = resume_artifact.get("state_dict")
+                resume_uses_best_state = True
+            else:
+                resume_state_dict = resume_artifact.get("state_dict") or resume_artifact.get("latest_state_dict")
+            if resume_state_dict is None:
+                raise ValueError("Resume artifact does not contain model weights.")
             model.load_state_dict(resume_state_dict)
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
-        if resume_artifact is not None and resume_artifact.get("optimizer_state_dict"):
-            optimizer.load_state_dict(resume_artifact["optimizer_state_dict"])
+        if resume_artifact is not None:
+            if resume_uses_best_state and resume_artifact.get("best_optimizer_state_dict"):
+                optimizer.load_state_dict(resume_artifact["best_optimizer_state_dict"])
+            elif not resume_uses_best_state and resume_artifact.get("optimizer_state_dict"):
+                optimizer.load_state_dict(resume_artifact["optimizer_state_dict"])
 
         history: list[dict[str, Any]] = []
-        if resume_artifact is not None and isinstance(resume_artifact.get("history"), list):
-            history = [item for item in resume_artifact["history"] if isinstance(item, dict)]
+        if resume_artifact is not None:
+            saved_history = resume_artifact.get("history")
+            if isinstance(saved_history, list):
+                history = [
+                    item
+                    for item in saved_history
+                    if isinstance(item, dict) and int(item.get("epoch") or 0) <= resumed_checkpoint_epoch
+                ]
+            elif saved_last_epoch_summary is not None and int(saved_last_epoch_summary.get("epoch") or 0) <= resumed_checkpoint_epoch:
+                history = [saved_last_epoch_summary]
         best_validation_loss = math.inf
         best_state = copy.deepcopy(model.state_dict())
+        best_optimizer_state = copy.deepcopy(optimizer.state_dict())
         epochs_without_validation_improvement = 0
         if resume_artifact is not None:
             saved_best_state = resume_artifact.get("best_state_dict")
             if saved_best_state is not None:
                 best_state = copy.deepcopy(saved_best_state)
-                if history:
-                    best_validation_loss = min(float(item["validation_loss"]) for item in history)
-            else:
-                # Older recovery checkpoints only stored the latest weights, so resume from that point cleanly.
-                last_epoch_summary = history[-1] if history else None
-                history = [last_epoch_summary] if isinstance(last_epoch_summary, dict) else []
-                if history:
-                    best_validation_loss = float(history[-1]["validation_loss"])
+            saved_best_optimizer_state = resume_artifact.get("best_optimizer_state_dict")
+            if resume_uses_best_state and saved_best_optimizer_state is not None:
+                best_optimizer_state = copy.deepcopy(saved_best_optimizer_state)
+            elif not resume_uses_best_state:
+                best_optimizer_state = copy.deepcopy(optimizer.state_dict())
+            if history:
+                best_validation_loss = min(float(item["validation_loss"]) for item in history)
+                best_history_index = max(
+                    index
+                    for index, item in enumerate(history)
+                    if float(item["validation_loss"]) <= best_validation_loss
+                )
+                epochs_without_validation_improvement = len(history) - 1 - best_history_index
+            elif saved_best_epoch_summary is not None:
+                best_validation_loss = float(saved_best_epoch_summary["validation_loss"])
+            elif saved_last_epoch_summary is not None:
+                best_validation_loss = float(saved_last_epoch_summary["validation_loss"])
+            elif saved_best_state is None:
+                # Older recovery checkpoints only stored the latest weights, so treat the resumed weights as the current best.
+                best_validation_loss = math.inf
         recovery_artifact_path = settings.models_dir / f"{run_key}-recovery.pt"
         live_weight_snapshot_path = training_weight_snapshot_path(settings, run_key)
 
@@ -1983,10 +2067,11 @@ def train_model(
         ) -> None:
             latest_state = copy.deepcopy(model.state_dict())
             primary_state = best_state if best_epoch is not None else latest_state
+            checkpoint_epoch = int(best_epoch["epoch"]) if isinstance(best_epoch, dict) and "epoch" in best_epoch else epoch
             torch.save(
                 {
                     "run_key": run_key,
-                    "checkpoint_epoch": epoch,
+                    "checkpoint_epoch": checkpoint_epoch,
                     "is_recovery_checkpoint": True,
                     "model_type": config.model_type,
                     "layout_version": MODEL_LAYOUT_VERSION,
@@ -1996,6 +2081,7 @@ def train_model(
                     "state_dict": primary_state,
                     "latest_state_dict": latest_state,
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "best_optimizer_state_dict": best_optimizer_state if best_epoch is not None else None,
                     "scaler_common_mean": scaler.common_mean.tolist(),
                     "scaler_common_std": scaler.common_std.tolist(),
                     "scaler_dog_mean": scaler.dog_mean.tolist(),
@@ -2030,6 +2116,12 @@ def train_model(
             stop_request = read_training_stop_request(settings, run_key)
             if stop_request is None:
                 return
+            stop_reason = _format_stop_request_reason(
+                stop_request,
+                stage=stage,
+                epoch=epoch,
+                recovery_artifact_path=recovery_artifact_path,
+            )
             best_epoch_summary = (
                 min(history, key=lambda item: float(item["validation_loss"]))
                 if history
@@ -2058,12 +2150,12 @@ def train_model(
                 requested_at=stop_request.get("requested_at"),
                 requested_by=stop_request.get("requested_by"),
                 reason=stop_request.get("reason"),
+                stop_reason=stop_reason,
                 recovery_artifact_path=str(recovery_artifact_path),
             )
             clear_training_stop_request(settings, run_key)
             raise TrainingStopRequested(
-                "Stop requested from the dashboard. "
-                f"Saved recovery checkpoint to {recovery_artifact_path}.",
+                stop_reason,
                 recovery_artifact_path=str(recovery_artifact_path),
             )
 
@@ -2244,6 +2336,7 @@ def train_model(
             if validation_loss < best_validation_loss:
                 best_validation_loss = validation_loss
                 best_state = copy.deepcopy(model.state_dict())
+                best_optimizer_state = copy.deepcopy(optimizer.state_dict())
                 epochs_without_validation_improvement = 0
             else:
                 epochs_without_validation_improvement += 1
@@ -2271,6 +2364,7 @@ def train_model(
                 train_loss=train_loss,
                 validation_loss=validation_metrics["loss"],
                 validation_winner_accuracy=validation_metrics["winner_accuracy"],
+                winner_trap_diagnostic=validation_metrics["winner_trap_diagnostic"],
                 best_validation_loss=best_validation_loss,
                 elapsed_seconds=elapsed_seconds,
                 weight_snapshot_path=weight_snapshot_path,
@@ -2290,6 +2384,7 @@ def train_model(
                     "validation_top3_set_accuracy": validation_metrics["top3_set_accuracy"],
                     "validation_exact_order_accuracy": validation_metrics["exact_order_accuracy"],
                     "validation_mean_abs_rank_error": validation_metrics["mean_abs_rank_error"],
+                    "winner_trap_diagnostic": validation_metrics["winner_trap_diagnostic"],
                     "best_validation_loss": best_validation_loss,
                     "elapsed_seconds": elapsed_seconds,
                     "weight_snapshot_path": weight_snapshot_path,
@@ -2300,6 +2395,11 @@ def train_model(
                 config.early_stopping_patience > 0
                 and epochs_without_validation_improvement >= config.early_stopping_patience
             ):
+                completion_note = (
+                    f"Training stopped after epoch {epoch} of {config.epochs} because validation loss "
+                    f"did not improve for {epochs_without_validation_improvement} consecutive epoch(s) "
+                    f"(patience {config.early_stopping_patience})."
+                )
                 logger.log(
                     "early_stopping_triggered",
                     run_key=run_key,
@@ -2307,6 +2407,7 @@ def train_model(
                     patience=config.early_stopping_patience,
                     best_validation_loss=best_validation_loss,
                     epochs_without_validation_improvement=epochs_without_validation_improvement,
+                    stop_reason=completion_note,
                 )
                 emit_progress(
                     {
@@ -2316,6 +2417,7 @@ def train_model(
                         "patience": config.early_stopping_patience,
                         "best_validation_loss": best_validation_loss,
                         "epochs_without_validation_improvement": epochs_without_validation_improvement,
+                        "stop_reason": completion_note,
                     }
                 )
                 break
@@ -2362,6 +2464,7 @@ def train_model(
         torch.save(
             {
                 "run_key": run_key,
+                "checkpoint_epoch": int(best_epoch_summary["epoch"]) if isinstance(best_epoch_summary, dict) and "epoch" in best_epoch_summary else 0,
                 "model_type": config.model_type,
                 "layout_version": MODEL_LAYOUT_VERSION,
                 "common_feature_names": COMMON_FEATURE_NAMES,
@@ -2370,6 +2473,8 @@ def train_model(
                 "state_dict": model.state_dict(),
                 "latest_state_dict": latest_state,
                 "best_state_dict": best_state,
+                "optimizer_state_dict": optimizer.state_dict(),
+                "best_optimizer_state_dict": best_optimizer_state,
                 "artifact_state": "best_validation",
                 "scaler_common_mean": scaler.common_mean.tolist(),
                 "scaler_common_std": scaler.common_std.tolist(),
@@ -2378,6 +2483,7 @@ def train_model(
                 "summary": final_validation_metrics,
                 "best_epoch": best_epoch_summary,
                 "last_epoch": last_epoch_summary,
+                "history": history,
                 "data_summary": data_summary,
                 "training_log_path": str(training_log_path),
                 "weight_snapshot_path": final_weight_snapshot_path,
@@ -2393,6 +2499,7 @@ def train_model(
             "last_epoch": last_epoch_summary,
             "config": asdict(config),
             "data_summary": data_summary,
+            "stop_reason": completion_note,
             "progress_error": progress_error,
             "training_log_path": str(training_log_path),
             "weight_snapshot_path": final_weight_snapshot_path,
@@ -2415,6 +2522,7 @@ def train_model(
             training_run.metrics_json = final_validation_metrics
             training_run.artifact_path = str(artifact_path)
             training_run.report_path = str(report_path)
+            training_run.error_text = completion_note
         logger.log(
             "training_run_completed",
             run_key=run_key,
@@ -2433,6 +2541,7 @@ def train_model(
                 "summary": final_validation_metrics,
                 "best_epoch": best_epoch_summary,
                 "last_epoch": last_epoch_summary,
+                "stop_reason": completion_note,
                 "artifact_path": str(artifact_path),
                 "report_path": str(report_path),
                 "training_log_path": str(training_log_path),
@@ -2453,6 +2562,7 @@ def train_model(
             "last_epoch": last_epoch_summary,
             "history": history,
             "data_summary": data_summary,
+            "stop_reason": completion_note,
             "progress_error": progress_error,
         }
     except Exception as exc:

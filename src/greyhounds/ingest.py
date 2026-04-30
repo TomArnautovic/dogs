@@ -1082,9 +1082,8 @@ def _gbgb_to_rows(summary: dict[str, Any], detail: dict[str, Any]) -> list[dict[
     scheduled_start = summary.get("dateTime") or summary.get("scheduledStart") or summary.get("startTime")
     if not scheduled_start and race_date and race_time:
         try:
-            scheduled_start = datetime.strptime(f"{race_date} {race_time}", "%d/%m/%Y %H:%M:%S").replace(
-                tzinfo=timezone.utc
-            ).isoformat()
+            datetime.strptime(f"{race_date} {race_time}", "%d/%m/%Y %H:%M:%S")
+            scheduled_start = f"{race_date} {race_time}"
         except ValueError:
             scheduled_start = None
     common = {
